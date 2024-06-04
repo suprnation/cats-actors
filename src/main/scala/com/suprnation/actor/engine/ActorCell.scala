@@ -1,0 +1,381 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.suprnation.actor.engine
+
+import cats.Parallel
+import cats.effect._
+import cats.effect.std.{Console, Supervisor}
+import cats.effect.syntax.all._
+import cats.syntax.all._
+import com.suprnation.actor.Actor.{Message, Receive}
+import com.suprnation.actor.dispatch._
+import com.suprnation.actor.dungeon.ReceiveTimeout
+import com.suprnation.actor.event.{Debug, LogEvent}
+import com.suprnation.actor.props.Props
+import com.suprnation.actor.{ReceiveTimeout => ReceiveTimeoutSignal, _}
+import com.suprnation.typelevel.actors.syntax._
+
+import scala.annotation.tailrec
+import scala.concurrent.duration.{DurationInt, FiniteDuration}
+import scala.language.postfixOps
+import scala.util.control.NonFatal
+
+object ActorCell {
+  final val undefinedUid = 0
+
+  @tailrec
+  final def newUid(): Int = {
+    val uid: Int = scala.util.Random.nextInt()
+    if (uid == undefinedUid) newUid()
+    else uid
+  }
+  def apply[F[+_]: Parallel: Async: Temporal: Console](
+      supervisor: Supervisor[F],
+      systemShutdownSignal: Deferred[F, Unit],
+      _self: InternalActorRef[F],
+      _props: Props[F],
+      _actorSystem: ActorSystem[F],
+      _parent: Option[InternalActorRef[F]]
+  ): F[ActorCell[F]] = for {
+    // Create the shutdown signal to shutdown processing.
+    shutdownSignal <- Deferred[F, Unit]
+    _childrenContext <- dungeon.Children.createContext[F](supervisor, systemShutdownSignal)
+    _dispatchContext <- dungeon.Dispatch.createContext[F](_self.name)
+    _faultHandlingContext <- dungeon.FaultHandling.createContext[F]
+    _deathWatchContext <- dungeon.DeathWatch.createContext[F]
+    _receiveTimeoutContextRef <- Ref.of(dungeon.ReceiveTimeout.ReceiveTimeoutContext(None, None))
+    _creationContext <- dungeon.Creation.createContext[F]
+  } yield {
+    new ActorCell[F] {
+      override val props: Props[F] = _props
+      override val actorSystem: ActorSystem[F] = _actorSystem
+
+      override def context: F[ActorContext[F]] = _creationContext.actorContextF.get
+
+      // Implicits
+      override val asyncF: Async[F] = implicitly[Async[F]]
+      override val concurrentF: Concurrent[F] = implicitly[Concurrent[F]]
+      override val temporalF: Temporal[F] = implicitly[Temporal[F]]
+      override val consoleF: Console[F] = implicitly[Console[F]]
+      override val parallelF: Parallel[F] = implicitly[Parallel[F]]
+
+      // Core Plugin
+      override val creationContext: dungeon.Creation.CreationContext[F] = _creationContext
+
+      // Other plugins
+      override val deathWatchContext: dungeon.DeathWatch.DeathWatchContext[F] = _deathWatchContext
+      override val childrenContext: dungeon.Children.ChildrenContext[F] = _childrenContext
+      override val faultHandlingContext: dungeon.FaultHandling.FaultHandlingContext[F] =
+        _faultHandlingContext
+      override val dispatchContext: dungeon.Dispatch.DispatchContext[F] = _dispatchContext
+
+      override val system: ActorSystem[F] = _actorSystem
+      override var currentMessage: Option[Envelope[F, Message]] = None
+      var _isIdle: Boolean = true
+      val isIdleTrue: F[Unit] = Temporal[F].delay { _isIdle = true }
+
+      val receiveTimeout: ReceiveTimeout[F] = new ReceiveTimeout(_receiveTimeoutContextRef)
+
+      // We can safely assume that all actors have a parent (we guarantee that the guardian is present! only the guardian does not have a parent because its the parent!)
+      @inline override def parent: InternalActorRef[F] = _parent.get
+
+      @inline override def actor: F[Actor[F]] = creationContext.actorF.get
+
+      val actorOp: F[Option[Actor[F]]] = Temporal[F].delay {
+        creationContext.actorOp
+      }
+
+      def systemInvoke(message: SystemMessageEnvelope[F]): F[Unit] = {
+
+        def sendAllToDeadLetters(messages: List[SystemMessageEnvelope[F]]): F[Unit] =
+          for {
+            actorContext <- creationContext.actorContextF.get
+            _ <- messages.traverse_(message => actorContext.system.deadLetters.flatMap(_ ! message))
+          } yield ()
+
+        for {
+          terminated <- isTerminated
+          _ <-
+            if (terminated) sendAllToDeadLetters(message :: Nil)
+            else
+              (message.invocation match {
+                case SystemMessage.Ping()       => handlePing
+                case f: SystemMessage.Failed[F] => handleFailure(f)
+                case SystemMessage.DeathWatchNotification(a, ec, at) =>
+                  watchedActorTerminated(a, ec, at)
+                case SystemMessage.Create(failure)           => create(failure)
+                case SystemMessage.Watch(watchee, watcher)   => addWatcher(watchee, watcher)
+                case SystemMessage.UnWatch(watchee, watcher) => removeWatcher(watchee, watcher)
+                case SystemMessage.Recreate(cause)           => faultRecreate(cause)
+                case SystemMessage.Suspend(cause)            => faultSuspend(cause)
+                case SystemMessage.Resume(inRespToFailure)   => faultResume(inRespToFailure)
+                case SystemMessage.Terminate()               => terminate
+                case SystemMessage.Supervise(child)          => supervise(child)
+                case SystemMessage.NoMessage()               => Concurrent[F].unit
+              }).recoverWith { case NonFatal(e) =>
+                handleInvokeFailure(Nil, e).map(_ -> false)
+              }
+        } yield ()
+      }
+
+      private def handlePing: F[Unit] =
+        receiveTimeout.checkTimeout(sendMessage(Envelope(ReceiveTimeoutSignal), None))
+
+      @inline final def invoke(messageHandle: Envelope[F, Message]): F[(Any, Boolean)] =
+        for {
+          _ <- receiveTimeout.markLastMessageTimestamp
+          result <- (messageHandle.message match {
+            case _: AutoReceivedMessage => autoReceiveMessage(messageHandle).map(_ -> true)
+            case _                      => receiveMessage(messageHandle).map(_ -> true)
+          }).recoverWith { case NonFatal(e) =>
+            handleInvokeFailure(Nil, e).map(_ -> false)
+          }
+        } yield result
+
+      /** Method to receive system generated messages that are automatically processed. Note that actor messages should receive priority so here we will either create a priority queue or else do two separate queues and merge.
+        */
+      @inline final def autoReceiveMessage(msg: Envelope[F, Message]): F[Any] =
+        for {
+          _ <-
+            if (_actorSystem.settings.DebugAutoReceive) {
+              publish(Debug(_self.path.toString, _, "Received AutoReceiveMessage " + msg))
+            } else concurrentF.unit
+          _ <- msg.message match {
+            case t: Terminated[?] => receivedTerminated(t.asInstanceOf[Terminated[F]])
+            case Kill             => Concurrent[F].raiseError(ActorKilledException("Kill"))
+            case PoisonPill       => stop
+            case _ => Concurrent[F].raiseError(new Error("Auto message not handled.  "))
+          }
+        } yield ()
+
+      override def become(behaviour: Receive[F], discardOld: Boolean): F[Unit] =
+        actor.flatMap(_.context.become(behaviour, discardOld))
+
+      override def unbecome: F[Unit] = actor.flatMap(_.context.unbecome)
+
+      private val pingMessage = Envelope.system(SystemMessage.Ping[F]())
+
+      override def start: F[Fiber[F, Throwable, Unit]] =
+        supervisor
+          .supervise(
+            Concurrent[F]
+              .race(
+                Concurrent[F].race(systemShutdownSignal.get, shutdownSignal.get),
+                processMailbox.foreverM
+              )
+              // If the system is suspended, we do not ping.
+              .race(
+                (Temporal[F].sleep(1 second) >> dispatchContext.mailbox.isSuspended
+                  .ifM(().pure[F], sendSystemMessage(pingMessage))).foreverM
+              )
+              .void
+          )
+
+      @inline final private def processMailbox =
+        // Internally if there are message the system will take that message
+        dispatchContext.mailbox
+          .processMailbox { systemMessage =>
+            Temporal[F].delay {
+              _isIdle = false
+              creationContext.senderOp = None
+            } >> systemInvoke(systemMessage).uncancelable.map(_ => _isIdle = true)
+          } { case EnvelopeWithDeferred(envelope, deferred) =>
+            Temporal[F].delay {
+              _isIdle = false
+              currentMessage = envelope.some
+              creationContext.senderOp = envelope.sender
+            } >>
+              invoke(envelope).map { case (result, success) =>
+                if (success) {
+                  currentMessage = None
+                  creationContext.senderOp = None
+                }
+                result
+              }.uncancelable >>= (result =>
+              deferred match {
+                case None =>
+                  isIdleTrue
+                case Some(d) =>
+                  d.complete(result).map(_ => _isIdle = true)
+              }
+            )
+          }
+
+      def publish(e: Class[?] => LogEvent): F[Unit] =
+        for {
+          _ <- creationContext.actorOp match {
+            case None =>
+              // TODO: Fix the null in the clazz.
+              _actorSystem.eventStream.offer(e(clazz(null)))
+            case Some(a) =>
+              _actorSystem.eventStream.offer(e(clazz(a)))
+          }
+        } yield ()
+
+      override def provider: FiberActorRefProvider[F] = new LocalActorRefProvider[F](
+        supervisor,
+        systemShutdownSignal,
+        system,
+        _self
+      )
+
+      override def isIdle: F[Boolean] =
+        //          (dispatchContext.mailbox.isIdle >>= ((isIdle: Boolean) => Console[F].println(s"[Mailbox (${self.path.name})]:  $isIdle"))) >>
+        //            Console[F].println(s"[Actor (${self.path.name})] : ${_isIdle}") >>
+        dispatchContext.mailbox.isIdle &&& Temporal[F].delay(_isIdle)
+
+      override implicit def self: ActorRef[F] = _self
+
+      implicit def receiver: Receiver[F] = Receiver(_self)
+
+      override def clearActorFields(recreate: Boolean): F[Unit] =
+        Temporal[F].delay {
+          currentMessage = None
+          creationContext.behaviourStack.clear()
+        }
+
+      // TODO: move to the creation context...
+      override def clearFieldsForTermination: F[Unit] =
+        (creationContext.actorOp match {
+          case Some(actor: ActorConfig) if actor.clearActor =>
+            Temporal[F].delay {
+              None
+            }
+          case a @ Some(actor: ActorConfig) if !actor.clearActor =>
+            Temporal[F].delay {
+              a
+            }
+          case Some(_: Actor[F]) =>
+            Temporal[F].delay {
+              None
+            }
+          case rest =>
+            Temporal[F].delay {
+              rest
+            }
+        }) >>
+          Temporal[F].delay {
+            creationContext.actorContextOp = None
+            _isIdle = true
+          }
+
+      override def finishTerminate: F[Unit] =
+        creationContext.actorOp
+          .fold(concurrentF.unit)(_.aroundPostStop())
+          .recoverWith { case NonFatal(e) =>
+            publish(event.Error(e, self.path.toString, _, e.getMessage))
+          }
+          .guarantee(
+            (for {
+              deadLetterMailbox <- mailbox.Mailboxes.deadLetterMailbox(_actorSystem, this.receiver)
+              _ <- dispatchContext
+                .swapMailbox(deadLetterMailbox)
+                .flatMap(mailbox =>
+                  mailbox.close >>
+                    (for {
+                      _ <- mailbox.cleanup {
+                        case Left(systemMessage) =>
+                          deadLetterMailbox.systemEnqueue(systemMessage)
+                        case Right(msg @ EnvelopeWithDeferred(_, _)) =>
+                          deadLetterMailbox.enqueue(msg)
+                      }
+                    } yield ())
+                )
+            } yield ()) >>
+              // swap mailbox
+              shutdownSignal.complete(()) >>
+              parent.sendSystemMessage(
+                Envelope.system(
+                  SystemMessage.DeathWatchNotification(
+                    self,
+                    existenceConfirmed = true,
+                    addressTerminated = false
+                  )
+                )
+              ) >>
+              tellWatcherWeDied() >>
+              unwatchWatchedActor >>
+              Concurrent[F].whenA(system.settings.DebugLifecycle)(
+                publish(Debug(self.path.toString, _, "stopped"))
+              ) >>
+              clearActorFields(false) >>
+              clearFieldsForTermination
+          )
+
+      override def setReceiveTimeout(timeout: FiniteDuration): F[Unit] =
+        receiveTimeout.setReceiveTimeout(timeout)
+
+      override def cancelReceiveTimeout: F[Unit] =
+        receiveTimeout.cancelReceiveTimeout
+    }
+  }
+}
+
+/** Actor Cell is the machine that will drive the actor system. It will handle two kinds of messages either system messages or auto messages handled by the user
+  */
+  // format: off
+trait ActorCell[F[+_]]
+  extends Cell[F]
+  with dungeon.Creation[F]
+  with dungeon.DeathWatch[F]
+  with dungeon.FaultHandling[F]
+  with dungeon.Suspension[F]
+  with dungeon.Children[F]
+  with dungeon.Dispatch[F]
+  with ActorRefProvider[F] {
+// format: on
+
+  var currentMessage: Option[Envelope[F, Message]]
+
+  def context: F[ActorContext[F]]
+
+  def actorSystem: ActorSystem[F]
+
+  def props: Props[F]
+
+  def uid: Int = self.path.uid
+
+  def actor: F[Actor[F]]
+
+  def actorOp: F[Option[Actor[F]]]
+
+  def become(behaviour: Actor.Receive[F], discardOld: Boolean = true): F[Unit]
+
+  def unbecome: F[Unit]
+
+  def publish(e: Class[?] => LogEvent): F[Unit]
+
+  def clazz(o: AnyRef): Class[?] = if (o eq null) this.getClass else o.getClass
+
+  // Reset the current message and the behaviour stack
+  def clearActorFields(recreate: Boolean): F[Unit]
+
+  // Completely kill the actor.. set the props to null and the actor reference to null.
+  // This should just leave a shell of the actor cell.
+  def clearFieldsForTermination: F[Unit]
+
+  // Finish the termination
+  def finishTerminate: F[Unit]
+
+  def provider: FiberActorRefProvider[F]
+
+  def system: ActorSystem[F]
+
+  def setReceiveTimeout(timeout: FiniteDuration): F[Unit]
+
+  def cancelReceiveTimeout: F[Unit]
+}

@@ -1,0 +1,8 @@
+.bloop
+.idea
+.metals
+.vscode
+project/project
+project
+target
+.github_token

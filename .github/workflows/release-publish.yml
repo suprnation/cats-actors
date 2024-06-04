@@ -1,0 +1,45 @@
+name: Publish Package on Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'adopt'
+          java-version: '11'
+
+      - name: Cache sbt
+        uses: actions/cache@v2
+        with:
+          path: ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      - name: Cache Coursier
+        uses: actions/cache@v2
+        with:
+          path: ~/.coursier
+          key: ${{ runner.os }}-coursier-${{ hashFiles('**/build.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-coursier-
+
+      - name: Setup sbt credentials
+        run: |
+          mkdir -p ~/.sbt/1.0
+          echo "credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", \"${{ github.actor }}\", \"${{ secrets.GITHUB_TOKEN }}\")" >> ~/.sbt/1.0/global.sbt
+
+      - name: Build and publish
+        run: sbt clean compile publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
