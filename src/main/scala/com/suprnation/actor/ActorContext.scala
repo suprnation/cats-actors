@@ -37,7 +37,8 @@ object ActorContext {
 
     override def become(behaviour: Receive[F], discardOld: Boolean = true): F[Unit] =
       Temporal[F].delay {
-        if (discardOld) _creationContext.behaviourStack.pop()
+        if (discardOld && _creationContext.behaviourStack.size > 1)
+          _creationContext.behaviourStack.pop()
         _creationContext.behaviourStack.push(behaviour)
       }
 

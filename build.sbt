@@ -1,4 +1,4 @@
-ThisBuild / version := "1.0.0"
+ThisBuild / version := "1.0.1"
 
 ThisBuild / scalaVersion := "2.13.12"
 
@@ -28,17 +28,17 @@ scalacOptions ++= Seq( // use ++= to add to existing options
 libraryDependencies ++= Seq(
   "org.typelevel" %% "cats-effect" % "3.5.2", // if needed for other dependencies
   "org.typelevel" %% "cats-effect" % "3.5.0",
-  "co.fs2" %% "fs2-core" % "3.10.2",
-  "co.fs2" %% "fs2-io" % "3.10.2",
-  "com.typesafe" % "config" % "1.4.3",
-  "org.scalatest" %% "scalatest" % "3.2.18" % Test
+  "org.scalatest" %% "scalatest" % "3.2.18" % Test,
+  "co.fs2" %% "fs2-core" % "3.10.2" % Test,
+  "co.fs2" %% "fs2-io" % "3.10.2" % Test,
+  "com.rabbitmq" % "amqp-client" % "5.21.0" % Test
 )
 
 publishTo := {
-  val owner = "cloudmark"
+  val owner = "suprnation"
   val repo = "cats-actors"
   if (isSnapshot.value)
-    Some("GitHub Package Registry" at s"https://maven.pkg.github.com/$owner/$repo")
+    Some("GitHub Package Registry".at(s"https://maven.pkg.github.com/$owner/$repo"))
   else
-    Some("GitHub Package Registry" at s"https://maven.pkg.github.com/$owner/$repo")
+    Some("GitHub Package Registry".at(s"https://maven.pkg.github.com/$owner/$repo"))
 }
