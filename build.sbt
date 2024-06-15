@@ -28,10 +28,7 @@ scalacOptions ++= Seq( // use ++= to add to existing options
 libraryDependencies ++= Seq(
   "org.typelevel" %% "cats-effect" % "3.5.2", // if needed for other dependencies
   "org.typelevel" %% "cats-effect" % "3.5.0",
-  "org.scalatest" %% "scalatest" % "3.2.18" % Test,
-  "co.fs2" %% "fs2-core" % "3.10.2" % Test,
-  "co.fs2" %% "fs2-io" % "3.10.2" % Test,
-  "com.rabbitmq" % "amqp-client" % "5.21.0" % Test
+  "org.scalatest" %% "scalatest" % "3.2.18" % Test
 )
 
 publishTo := {
