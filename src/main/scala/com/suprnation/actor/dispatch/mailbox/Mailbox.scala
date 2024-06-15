@@ -26,6 +26,8 @@ trait Mailbox[F[+_], SystemMessage, A] {
 
   @inline def tryDequeue: F[Option[A]]
 
+  @inline def deadLockCheck: F[Boolean]
+
   @inline def hasMessage: F[Boolean]
 
   @inline def hasSystemMessage: F[Boolean]

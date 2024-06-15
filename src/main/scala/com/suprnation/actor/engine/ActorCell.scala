@@ -179,8 +179,8 @@ object ActorCell {
               )
               // If the system is suspended, we do not ping.
               .race(
-                (Temporal[F].sleep(1 second) >> dispatchContext.mailbox.isSuspended
-                  .ifM(().pure[F], sendSystemMessage(pingMessage))).foreverM
+                (Temporal[F].sleep(1 second) >> dispatchContext.mailbox.deadLockCheck
+                  .ifM(sendSystemMessage(pingMessage), ().pure[F])).foreverM
               )
               .void
           )

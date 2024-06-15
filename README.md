@@ -84,9 +84,9 @@ and expressive framework for building concurrent applications.
 Add the following to your `build.sbt`:
 
 ```scala
-resolvers += "JitPack" at "https://jitpack.io"
+resolvers += "jitpack" at "https://jitpack.io"
 
-libraryDependencies += "com.github.suprnation" % "cats-actors_2.13" % "1.0.0"
+libraryDependencies += "com.github.suprnation" % "cats-actors" % "1.0.2"
 ```
 
 #### Using Maven
@@ -108,7 +108,7 @@ Add the following to your `pom.xml`:
 <dependency>
     <groupId>com.github.suprnation</groupId>
     <artifactId>cats-actors_2.13</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.2</version>
 </dependency>
 ```
 
@@ -122,7 +122,7 @@ Add the following to your `repositories.bzl` and `WORKSPACE` files:
 def load_dependencies():
     maven_install(
         artifacts = [
-            "com.github.suprnation:cats-actors:1.0.0",
+            "com.github.suprnation:cats-actors:1.0.2",
         ],
         repositories = [
             "https://jitpack.io",
