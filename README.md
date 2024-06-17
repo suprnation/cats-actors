@@ -86,7 +86,7 @@ Add the following to your `build.sbt`:
 ```scala
 resolvers += "jitpack" at "https://jitpack.io"
 
-libraryDependencies += "com.github.suprnation" % "cats-actors" % "1.0.2"
+libraryDependencies += "com.github.suprnation" %% "cats-actors" % "1.0.2"
 ```
 
 #### Using Maven
