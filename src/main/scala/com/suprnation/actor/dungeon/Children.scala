@@ -20,11 +20,11 @@ import cats.Parallel
 import cats.effect.std.{Semaphore, Supervisor}
 import cats.effect.{Concurrent, Deferred, Ref}
 import cats.implicits._
+import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor._
 import com.suprnation.actor.dungeon.Children.ChildrenContext
 import com.suprnation.actor.dungeon.ChildrenContainer._
 import com.suprnation.actor.engine.ActorCell
-import com.suprnation.actor.props.Props
 
 import scala.collection.immutable
 import scala.util.control.NonFatal
@@ -45,35 +45,35 @@ object Children {
   ) {}
 }
 
-trait Children[F[+_]] {
-  self: ActorCell[F] =>
+trait Children[F[+_], Request, Response] {
+  self: ActorCell[F, Request, Response] =>
 
   implicit val parallelF: Parallel[F]
   implicit val concurrentF: Concurrent[F]
   implicit val childrenContext: ChildrenContext[F]
 
-  def resumeChildren(causedByFailure: Option[Throwable], perp: Option[ActorRef[F]]): F[Unit] =
+  def resumeChildren(causedByFailure: Option[Throwable], perp: Option[NoSendActorRef[F]]): F[Unit] =
     for {
       children <- childrenRefs.get
       _ <- children.stats.parTraverse_ { case ChildRestartStats(child, _, _) =>
         child
-          .asInstanceOf[InternalActorRef[F]]
+          .asInstanceOf[InternalActorRef[F, Nothing, Any]]
           .resume(if (perp == Option(child)) causedByFailure else None)
       }
     } yield ()
 
-  final def stop(actor: ActorRef[F]): F[Unit] =
+  final def stop(actor: ActorRef[F, Nothing]): F[Unit] =
     for {
       children <- childrenRefs.get
       _ <- children
         .getByRef(actor)
         .fold(concurrentF.unit)(_ => childrenContext.childrenRefs.update(c => c.shallDie(actor)))
-      _ <- actor.asInstanceOf[InternalActorRef[F]].stop
+      _ <- actor.asInstanceOf[InternalActorRef[F, Nothing, Any]].stop
     } yield ()
 
-  def children: F[List[ActorRef[F]]] = childrenRefs.get.map(_.children)
+  def children: F[List[NoSendActorRef[F]]] = childrenRefs.get.map(_.children)
 
-  def child(name: String): F[Option[ActorRef[F]]] =
+  def child(name: String): F[Option[NoSendActorRef[F]]] =
     for {
       children <- childrenRefs.get
     } yield children.getByName(name) match {
@@ -85,7 +85,7 @@ trait Children[F[+_]] {
     */
   override def childrenRefs: Ref[F, ChildrenContainer[F]] = childrenContext.childrenRefs
 
-  def getChildByRef(ref: ActorRef[F]): F[Option[ChildRestartStats[F]]] = for {
+  def getChildByRef(ref: NoSendActorRef[F]): F[Option[ChildRestartStats[F]]] = for {
     childContainer <- childrenContext.childrenRefs.get
   } yield childContainer.getByRef(ref)
 
@@ -112,9 +112,16 @@ trait Children[F[+_]] {
   def swapChildrenRefs(newChildren: ChildrenContainer[F]): F[Unit] =
     childrenContext.childrenRefs.set(newChildren).void
 
-  def actorOf(props: => Props[F], name: => String): F[ActorRef[F]] = makeChild(props, name)
+  def replyingActorOf[ChildRequest, ChildResponse](
+      props: F[ReplyingActor[F, ChildRequest, ChildResponse]],
+      name: => String
+  ): F[ReplyingActorRef[F, ChildRequest, ChildResponse]] =
+    makeChild[ChildRequest, ChildResponse](props, name)
 
-  def makeChild(props: Props[F], name: String): F[ActorRef[F]] =
+  def makeChild[ChildRequest, ChildResponse](
+      props: F[ReplyingActor[F, ChildRequest, ChildResponse]],
+      name: String
+  ): F[ReplyingActorRef[F, ChildRequest, ChildResponse]] =
     childrenContext.childrenRefCriticalSection.permit.use { _ =>
       for {
         /*
@@ -130,7 +137,7 @@ trait Children[F[+_]] {
           } else {
             (for {
               _ <- swapChildrenRefs(children.reserve(name))
-              actorRef <- provider.actorOf(
+              actorRef <- provider.replyingActorOf[ChildRequest, ChildResponse](
                 props,
                 name
               ) // Create the actor by delegating to the context.
@@ -147,7 +154,7 @@ trait Children[F[+_]] {
       } yield child
     }
 
-  def initChild(ref: ActorRef[F], lock: Boolean = true): F[Option[ChildRestartStats[F]]] = {
+  def initChild(ref: NoSendActorRef[F], lock: Boolean = true): F[Option[ChildRestartStats[F]]] = {
     val computation: F[Option[ChildRestartStats[F]]] = for {
       children <- childrenContext.childrenRefs.get
       stats <- children.getByName(ref.path.name) match {
@@ -166,9 +173,9 @@ trait Children[F[+_]] {
 
   }
 
-  def removeChildAndGetStateChange(child: ActorRef[F]): F[Option[SuspendReason]] =
+  def removeChildAndGetStateChange(child: NoSendActorRef[F]): F[Option[SuspendReason]] =
     childrenContext.childrenRefCriticalSection.permit.use { _ =>
-      def removeChild(ref: ActorRef[F]): F[ChildrenContainer[F]] =
+      def removeChild(ref: NoSendActorRef[F]): F[ChildrenContainer[F]] =
         childrenContext.childrenRefs.get.flatMap { c =>
           val n = c.remove(ref)
           swapChildrenRefs(n).as(n)

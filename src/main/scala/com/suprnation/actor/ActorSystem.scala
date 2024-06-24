@@ -16,20 +16,29 @@
 
 package com.suprnation.actor
 
-import cats.Parallel
 import cats.effect._
 import cats.effect.std.{Console, Queue, Supervisor}
 import cats.syntax.all._
+import cats.{Applicative, Parallel}
 import com.suprnation.actor
-import com.suprnation.actor.Actor.Receive
+import com.suprnation.actor.Actor.{Actor, ReplyingReceive}
+import com.suprnation.actor.ActorRef.ActorRef
 import com.suprnation.actor.event.DeadLetterListener
-import com.suprnation.actor.props.Props
 import com.suprnation.typelevel.actors.syntax._
 
 import java.util.UUID
 
 trait RootActorCreator[F[+_]] {
-  def createRootActor(props: Props[F], name: String): F[ActorRef[F]]
+  def createRootActor[Request, Response](
+                                          props: => ReplyingActor[F, Request, Response],
+                                          name: String
+                                        )(implicit applicativeEvidence: Applicative[F]): F[ReplyingActorRef[F, Request, Response]] =
+    createRootActor[Request, Response](props.pure[F], name)
+
+  def createRootActor[Request, Response](
+      props: F[ReplyingActor[F, Request, Response]],
+      name: String
+  ): F[ReplyingActorRef[F, Request, Response]]
 }
 
 object ActorSystem {
@@ -62,8 +71,8 @@ object ActorSystem {
         Address("kukku", systemName.toLowerCase.replace(" ", "-"))
       )
       systemShutdownHook <- Resource.eval(Deferred[F, Unit])
-      deadLetterActorRef <- Resource.eval(Ref.of[F, Option[ActorRef[F]]](None))
-      guardianActorRef <- Resource.eval(Ref.of[F, Option[ActorRef[F]]](None))
+      deadLetterActorRef <- Resource.eval(Ref.of[F, Option[ActorRef[F, Any]]](None))
+      guardianActorRef <- Resource.eval(Ref.of[F, Option[ActorRef[F, Any]]](None))
       terminated <- Resource.eval(Ref[F].of(false))
 
       actorSystem <- Resource.eval(
@@ -78,7 +87,7 @@ object ActorSystem {
 
               override val consoleF: Console[F] = implicitly[Console[F]]
 
-              override def guardianRef: Ref[F, Option[ActorRef[F]]] = guardianActorRef
+              override def guardianRef: Ref[F, Option[ActorRef[F, Any]]] = guardianActorRef
 
               override def /(name: String): ActorPath = rootPath / name
 
@@ -86,28 +95,13 @@ object ActorSystem {
 
               override def scheduler: Scheduler[F] = Scheduler[F](schedulerCount)
 
-              def createRootActor(props: Props[F], name: String): F[ActorRef[F]] = for {
-                // For root actors we do not want to supervise.
-                localActorRef <-
-                  InternalActorRef.apply[F](
-                    supervisor,
-                    systemShutdownHook,
-                    name,
-                    props,
-                    this,
-                    rootPath / name,
-                    None,
-                    sendSupervise = false
-                  )
-                _ <- localActorRef.start
-              } yield localActorRef
 
               override val eventStream: Queue[F, Any] = _eventStream
 
-              override def deadLetters: F[ActorRef[F]] = deadLetterActorRef.get.flatMap {
+              override def deadLetters: F[ActorRef[F, Any]] = deadLetterActorRef.get.flatMap {
                 case Some(actorRef) => actorRef.pure[F]
                 case None =>
-                  Concurrent[F].raiseError[ActorRef[F]](
+                  Concurrent[F].raiseError[ActorRef[F, Any]](
                     new Error(
                       "Please use the appropriate construct to construct the actor system.  "
                     )
@@ -117,7 +111,10 @@ object ActorSystem {
               // Some settings so that we can enable / disable some flags.
               override def settings: Settings = new Settings()
 
-              override def actorOf(props: => Props[F], name: => String): F[ActorRef[F]] = for {
+              override def replyingActorOf[Request, Response](
+                  props: F[ReplyingActor[F, Request, Response]],
+                  name: => String = UUID.randomUUID().toString
+              ): F[ReplyingActorRef[F, Request, Response]] = for {
                 guardian <- guardian.get
                 // Use the cell in the actor to create more children.
                 cell <- guardian.cell
@@ -131,21 +128,41 @@ object ActorSystem {
 
               override def isTerminated: F[Boolean] =
                 terminated.get
+
+              def createRootActor[Request, Response](
+                                                      props: F[ReplyingActor[F, Request, Response]],
+                                                      name: String
+                                                    ): F[ReplyingActorRef[F, Request, Response]] = for {
+                // For root actors we do not want to supervise.
+                localActorRef <-
+                  InternalActorRef.apply[F, Request, Response](
+                    supervisor,
+                    systemShutdownHook,
+                    name,
+                    props,
+                    this,
+                    rootPath / name,
+                    None,
+                    sendSupervise = false
+                  )
+                _ <- localActorRef.start
+              } yield localActorRef
             }
+
           )
       )
 
       // Dead letter actor.
       _ <- Resource.eval(
         actorSystem
-          .createRootActor(Props[F](DeadLetterListener()), "dead-letter")
+          .createRootActor[Any, Any](DeadLetterListener[F](), "dead-letter")
           .flatMap(deadLetterActor => deadLetterActorRef.updateAndGet(_ => Some(deadLetterActor)))
       )
 
       // Guardian actor.
       _ <- Resource.eval(
         actorSystem
-          .createRootActor(Props[F](UserGuardian()), "user")
+          .createRootActor(UserGuardian(), "user")
           .flatMap { guardianActor =>
             guardianActorRef.updateAndGet(_ => Some(guardianActor))
           } >>
@@ -165,12 +182,12 @@ object ActorSystem {
 
   // Create the case class so that we have a proper class name in the logs
   private case class UserGuardian[F[+_]: Console: Parallel: Concurrent: Temporal]()
-      extends Actor[F] {
+      extends Actor[F, Any] {
 
     override def supervisorStrategy: SupervisionStrategy[F] = TerminateActorSystem(context.system)
 
-    override def receive: Receive[F] = { case _: Terminated[?] =>
-      Console[F].println("Oqow! Terminated was not handled! we need to shut down!")
+    override def receive: ReplyingReceive[F, Any, Unit] = { case _: Terminated[?, ?] =>
+      Console[F].println("Oqow! Terminated was not handled! we need to shut down!").void
     }
 
   }
@@ -206,15 +223,17 @@ trait ActorSystem[F[+_]] extends ActorRefProvider[F] {
 
   def scheduler: Scheduler[F]
 
-  def deadLetters: F[ActorRef[F]]
+  def deadLetters: F[ActorRef[F, Any]]
 
   override def toString: String = name
 
   // The guardian actor all user actors will original from this actor...
-  def guardianRef: Ref[F, Option[ActorRef[F]]]
+  def guardianRef: Ref[F, Option[ActorRef[F, Any]]]
 
   // The guardian actor all user actors will original from this actor...
-  def guardian: ActorInitalisationErrorRef[F, ActorRef[F]] = ActorInitalisationErrorRef(guardianRef)
+  def guardian: ActorInitalisationErrorRef[F, ActorRef[F, Any]] = ActorInitalisationErrorRef(
+    guardianRef
+  )
 
   def terminate(reason: Option[Throwable] = None): F[Unit]
 

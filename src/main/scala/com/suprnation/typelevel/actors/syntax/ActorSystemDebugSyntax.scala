@@ -20,7 +20,8 @@ import cats.Parallel
 import cats.effect.std.Console
 import cats.effect.{Concurrent, Temporal}
 import cats.implicits._
-import com.suprnation.actor.{ActorRef, ActorSystem}
+import com.suprnation.actor.ActorRef.NoSendActorRef
+import com.suprnation.actor.ActorSystem
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -30,7 +31,7 @@ trait ActorSystemDebugSyntax {
   final implicit class ActorSystemDebugOps[F[+_]: Concurrent: Parallel: Temporal: Console](
       actorSystem: ActorSystem[F]
   ) {
-    def waitForIdle(maxTimeout: Duration = 30 second): F[List[ActorRef[F]]] =
+    def waitForIdle(maxTimeout: Duration = 30 second): F[List[NoSendActorRef[F]]] =
       Concurrent[F]
         .race(
           for {
@@ -71,7 +72,7 @@ trait ActorSystemDebugSyntax {
                   } yield s"${actorRef.path} => ${idle}"
                 )
                 .sequence
-              result <- Concurrent[F].raiseError[List[ActorRef[F]]](
+              result <- Concurrent[F].raiseError[List[NoSendActorRef[F]]](
                 new IllegalStateException(
                   s"""Wait timeout exceeded, consider re-writing the test so that its not so slow.  If this is expected behaviour increase the maxTimeout
                        |
@@ -83,7 +84,7 @@ trait ActorSystemDebugSyntax {
 
         }
 
-    def allChildren: F[List[ActorRef[F]]] =
+    def allChildren: F[List[NoSendActorRef[F]]] =
       actorSystem.guardian.get >>= (userGuardian =>
         userGuardian.allChildrenFromThisActor.map(actors => userGuardian :: actors)
       )

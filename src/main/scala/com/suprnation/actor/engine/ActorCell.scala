@@ -21,12 +21,12 @@ import cats.effect._
 import cats.effect.std.{Console, Supervisor}
 import cats.effect.syntax.all._
 import cats.syntax.all._
-import com.suprnation.actor.Actor.{Message, Receive}
+import com.suprnation.actor.Actor.ReplyingReceive
+import com.suprnation.actor.ActorRef.NoSendActorRef
+import com.suprnation.actor._
 import com.suprnation.actor.dispatch._
 import com.suprnation.actor.dungeon.ReceiveTimeout
 import com.suprnation.actor.event.{Debug, LogEvent}
-import com.suprnation.actor.props.Props
-import com.suprnation.actor.{ReceiveTimeout => ReceiveTimeoutSignal, _}
 import com.suprnation.typelevel.actors.syntax._
 
 import scala.annotation.tailrec
@@ -43,28 +43,31 @@ object ActorCell {
     if (uid == undefinedUid) newUid()
     else uid
   }
-  def apply[F[+_]: Parallel: Async: Temporal: Console](
+  def apply[F[+_]: Parallel: Async: Temporal: Console, Request, Response](
       supervisor: Supervisor[F],
       systemShutdownSignal: Deferred[F, Unit],
-      _self: InternalActorRef[F],
-      _props: Props[F],
+      _self: InternalActorRef[F, Request, Response],
+      _props: F[ReplyingActor[F, Request, Response]],
       _actorSystem: ActorSystem[F],
-      _parent: Option[InternalActorRef[F]]
-  ): F[ActorCell[F]] = for {
+      _parent: Option[NoSendActorRef[F]]
+  ): F[ActorCell[F, Request, Response]] = for {
     // Create the shutdown signal to shutdown processing.
     shutdownSignal <- Deferred[F, Unit]
     _childrenContext <- dungeon.Children.createContext[F](supervisor, systemShutdownSignal)
-    _dispatchContext <- dungeon.Dispatch.createContext[F](_self.name)
+    _dispatchContext <- dungeon.Dispatch.createContext[F, Any, Any](_self.name)
     _faultHandlingContext <- dungeon.FaultHandling.createContext[F]
-    _deathWatchContext <- dungeon.DeathWatch.createContext[F]
-    _receiveTimeoutContextRef <- Ref.of(dungeon.ReceiveTimeout.ReceiveTimeoutContext(None, None))
-    _creationContext <- dungeon.Creation.createContext[F]
+    _deathWatchContext <- dungeon.DeathWatch.createContext[F, Request]
+    _receiveTimeoutContextRef <- Ref[F].of(
+      dungeon.ReceiveTimeout.ReceiveTimeoutContext[Request](None, None, None)
+    )
+    _creationContext <- dungeon.Creation.createContext[F, Request, Response]
   } yield {
-    new ActorCell[F] {
-      override val props: Props[F] = _props
+    new ActorCell[F, Request, Response] {
+      override val props: F[ReplyingActor[F, Request, Response]] = _props
       override val actorSystem: ActorSystem[F] = _actorSystem
 
-      override def context: F[ActorContext[F]] = _creationContext.actorContextF.get
+      override def context: F[ActorContext[F, Request, Response]] =
+        _creationContext.actorContextF.get
 
       // Implicits
       override val asyncF: Async[F] = implicitly[Async[F]]
@@ -74,28 +77,33 @@ object ActorCell {
       override val parallelF: Parallel[F] = implicitly[Parallel[F]]
 
       // Core Plugin
-      override val creationContext: dungeon.Creation.CreationContext[F] = _creationContext
+      override val creationContext: dungeon.Creation.CreationContext[F, Request, Response] =
+        _creationContext
 
       // Other plugins
-      override val deathWatchContext: dungeon.DeathWatch.DeathWatchContext[F] = _deathWatchContext
+      override val deathWatchContext: dungeon.DeathWatch.DeathWatchContext[F, Request] =
+        _deathWatchContext
       override val childrenContext: dungeon.Children.ChildrenContext[F] = _childrenContext
       override val faultHandlingContext: dungeon.FaultHandling.FaultHandlingContext[F] =
         _faultHandlingContext
-      override val dispatchContext: dungeon.Dispatch.DispatchContext[F] = _dispatchContext
+      override val dispatchContext: dungeon.Dispatch.DispatchContext[F, Any, Any] =
+        _dispatchContext
 
       override val system: ActorSystem[F] = _actorSystem
-      override var currentMessage: Option[Envelope[F, Message]] = None
+      override var currentMessage: Option[Envelope[F, ?]] = None
       var _isIdle: Boolean = true
       val isIdleTrue: F[Unit] = Temporal[F].delay { _isIdle = true }
 
-      val receiveTimeout: ReceiveTimeout[F] = new ReceiveTimeout(_receiveTimeoutContextRef)
+      val receiveTimeout: ReceiveTimeout[F, Request] =
+        new ReceiveTimeout[F, Request](_receiveTimeoutContextRef)
 
       // We can safely assume that all actors have a parent (we guarantee that the guardian is present! only the guardian does not have a parent because its the parent!)
-      @inline override def parent: InternalActorRef[F] = _parent.get
+      @inline override def parent: NoSendActorRef[F] = _parent.get
 
-      @inline override def actor: F[Actor[F]] = creationContext.actorF.get
+      @inline override def actor: F[ReplyingActor[F, Request, Response]] =
+        creationContext.actorF.get
 
-      val actorOp: F[Option[Actor[F]]] = Temporal[F].delay {
+      val actorOp: F[Option[ReplyingActor[F, Request, Response]]] = Temporal[F].delay {
         creationContext.actorOp
       }
 
@@ -117,8 +125,9 @@ object ActorCell {
                 case f: SystemMessage.Failed[F] => handleFailure(f)
                 case SystemMessage.DeathWatchNotification(a, ec, at) =>
                   watchedActorTerminated(a, ec, at)
-                case SystemMessage.Create(failure)           => create(failure)
-                case SystemMessage.Watch(watchee, watcher)   => addWatcher(watchee, watcher)
+                case SystemMessage.Create(failure) => create(failure)
+                case SystemMessage.Watch(watchee, watcher, onTerminated) =>
+                  addWatcher(watchee, watcher, onTerminated.asInstanceOf[Request])
                 case SystemMessage.UnWatch(watchee, watcher) => removeWatcher(watchee, watcher)
                 case SystemMessage.Recreate(cause)           => faultRecreate(cause)
                 case SystemMessage.Suspend(cause)            => faultSuspend(cause)
@@ -132,10 +141,10 @@ object ActorCell {
         } yield ()
       }
 
-      private def handlePing: F[Unit] =
-        receiveTimeout.checkTimeout(sendMessage(Envelope(ReceiveTimeoutSignal), None))
+      private def handlePing: F[Any] =
+        receiveTimeout.checkTimeout(msg => sendMessage(Envelope(msg), None))
 
-      @inline final def invoke(messageHandle: Envelope[F, Message]): F[(Any, Boolean)] =
+      @inline final def invoke(messageHandle: Envelope[F, Any]): F[(Any, Boolean)] =
         for {
           _ <- receiveTimeout.markLastMessageTimestamp
           result <- (messageHandle.message match {
@@ -148,21 +157,21 @@ object ActorCell {
 
       /** Method to receive system generated messages that are automatically processed. Note that actor messages should receive priority so here we will either create a priority queue or else do two separate queues and merge.
         */
-      @inline final def autoReceiveMessage(msg: Envelope[F, Message]): F[Any] =
+      @inline final def autoReceiveMessage(msg: Envelope[F, Any]): F[Any] =
         for {
           _ <-
             if (_actorSystem.settings.DebugAutoReceive) {
               publish(Debug(_self.path.toString, _, "Received AutoReceiveMessage " + msg))
             } else concurrentF.unit
           _ <- msg.message match {
-            case t: Terminated[?] => receivedTerminated(t.asInstanceOf[Terminated[F]])
-            case Kill             => Concurrent[F].raiseError(ActorKilledException("Kill"))
-            case PoisonPill       => stop
+            case t: Terminated[?, ?] => receivedTerminated(t.asInstanceOf[Terminated[F, Request]])
+            case Kill                => Concurrent[F].raiseError(ActorKilledException("Kill"))
+            case PoisonPill          => stop
             case _ => Concurrent[F].raiseError(new Error("Auto message not handled.  "))
           }
         } yield ()
 
-      override def become(behaviour: Receive[F], discardOld: Boolean): F[Unit] =
+      override def become(behaviour: ReplyingReceive[F, Request, Response], discardOld: Boolean): F[Unit] =
         actor.flatMap(_.context.become(behaviour, discardOld))
 
       override def unbecome: F[Unit] = actor.flatMap(_.context.unbecome)
@@ -219,7 +228,6 @@ object ActorCell {
         for {
           _ <- creationContext.actorOp match {
             case None =>
-              // TODO: Fix the null in the clazz.
               _actorSystem.eventStream.offer(e(clazz(null)))
             case Some(a) =>
               _actorSystem.eventStream.offer(e(clazz(a)))
@@ -238,7 +246,7 @@ object ActorCell {
         //            Console[F].println(s"[Actor (${self.path.name})] : ${_isIdle}") >>
         dispatchContext.mailbox.isIdle &&& Temporal[F].delay(_isIdle)
 
-      override implicit def self: ActorRef[F] = _self
+      override implicit def self: ReplyingActorRef[F, Request, Response] = _self
 
       implicit def receiver: Receiver[F] = Receiver(_self)
 
@@ -248,7 +256,6 @@ object ActorCell {
           creationContext.behaviourStack.clear()
         }
 
-      // TODO: move to the creation context...
       override def clearFieldsForTermination: F[Unit] =
         (creationContext.actorOp match {
           case Some(actor: ActorConfig) if actor.clearActor =>
@@ -259,7 +266,7 @@ object ActorCell {
             Temporal[F].delay {
               a
             }
-          case Some(_: Actor[F]) =>
+          case Some(_: ReplyingActor[F, ?, ?]) =>
             Temporal[F].delay {
               None
             }
@@ -281,7 +288,8 @@ object ActorCell {
           }
           .guarantee(
             (for {
-              deadLetterMailbox <- mailbox.Mailboxes.deadLetterMailbox(_actorSystem, this.receiver)
+              deadLetterMailbox <- mailbox.Mailboxes
+                .deadLetterMailbox[F, Any, Any](_actorSystem, this.receiver)
               _ <- dispatchContext
                 .swapMailbox(deadLetterMailbox)
                 .flatMap(mailbox =>
@@ -298,12 +306,14 @@ object ActorCell {
             } yield ()) >>
               // swap mailbox
               shutdownSignal.complete(()) >>
-              parent.sendSystemMessage(
-                Envelope.system(
-                  SystemMessage.DeathWatchNotification(
-                    self,
-                    existenceConfirmed = true,
-                    addressTerminated = false
+              parent.internalActorRef.flatMap(internal =>
+                internal.sendSystemMessage(
+                  Envelope.system(
+                    SystemMessage.DeathWatchNotification(
+                      self,
+                      existenceConfirmed = true,
+                      addressTerminated = false
+                    )
                   )
                 )
               ) >>
@@ -316,11 +326,12 @@ object ActorCell {
               clearFieldsForTermination
           )
 
-      override def setReceiveTimeout(timeout: FiniteDuration): F[Unit] =
-        receiveTimeout.setReceiveTimeout(timeout)
+      override def setReceiveTimeout(timeout: FiniteDuration, onTimeout: => Request): F[Unit] =
+        receiveTimeout.setReceiveTimeout(timeout, onTimeout)
 
       override def cancelReceiveTimeout: F[Unit] =
         receiveTimeout.cancelReceiveTimeout
+
     }
   }
 }
@@ -328,32 +339,32 @@ object ActorCell {
 /** Actor Cell is the machine that will drive the actor system. It will handle two kinds of messages either system messages or auto messages handled by the user
   */
   // format: off
-trait ActorCell[F[+_]]
-  extends Cell[F]
-  with dungeon.Creation[F]
-  with dungeon.DeathWatch[F]
-  with dungeon.FaultHandling[F]
-  with dungeon.Suspension[F]
-  with dungeon.Children[F]
-  with dungeon.Dispatch[F]
+trait ActorCell[F[+_], Request, Response]
+  extends Cell[F, Request, Response]
+  with dungeon.Creation[F, Request, Response]
+  with dungeon.DeathWatch[F, Request, Response]
+  with dungeon.FaultHandling[F, Request, Response]
+  with dungeon.Suspension[F, Request, Response]
+  with dungeon.Children[F, Request, Response]
+  with dungeon.Dispatch[F, Request, Response]
   with ActorRefProvider[F] {
 // format: on
 
-  var currentMessage: Option[Envelope[F, Message]]
+  var currentMessage: Option[Envelope[F, ?]]
 
-  def context: F[ActorContext[F]]
+  def context: F[ActorContext[F, Request, Response]]
 
   def actorSystem: ActorSystem[F]
 
-  def props: Props[F]
+  def props: F[ReplyingActor[F, Request, Response]]
 
   def uid: Int = self.path.uid
 
-  def actor: F[Actor[F]]
+  def actor: F[ReplyingActor[F, Request, Response]]
 
-  def actorOp: F[Option[Actor[F]]]
+  def actorOp: F[Option[ReplyingActor[F, Request, Response]]]
 
-  def become(behaviour: Actor.Receive[F], discardOld: Boolean = true): F[Unit]
+  def become(behaviour: ReplyingReceive[F, Request, Response], discardOld: Boolean = true): F[Unit]
 
   def unbecome: F[Unit]
 
@@ -375,7 +386,7 @@ trait ActorCell[F[+_]]
 
   def system: ActorSystem[F]
 
-  def setReceiveTimeout(timeout: FiniteDuration): F[Unit]
+  def setReceiveTimeout(timeout: FiniteDuration, onTimeout: => Request): F[Unit]
 
   def cancelReceiveTimeout: F[Unit]
 }

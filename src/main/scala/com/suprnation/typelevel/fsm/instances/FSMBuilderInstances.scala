@@ -24,24 +24,24 @@ import com.suprnation.actor.fsm.FSM.StopEvent
 import com.suprnation.actor.fsm.{FSMBuilder, FSMConfig, State}
 
 trait FSMBuilderInstances {
-  final implicit def FSMBuilderSemigroupEvidence[F[+_]: Parallel: Async: Temporal, S, D]
-      : Semigroup[FSMBuilder[F, S, D]] = new Semigroup[FSMBuilder[F, S, D]] {
+  final implicit def FSMBuilderSemigroupEvidence[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
+      : Semigroup[FSMBuilder[F, S, D, Request, Response]] = new Semigroup[FSMBuilder[F, S, D, Request, Response]] {
     def optionallyExecute(condition: Boolean, effect: F[Unit]): F[Unit] =
       if (condition) effect else Sync[F].unit
 
-    override def combine(x: FSMBuilder[F, S, D], y: FSMBuilder[F, S, D]): FSMBuilder[F, S, D] = {
+    override def combine(x: FSMBuilder[F, S, D, Request, Response], y: FSMBuilder[F, S, D, Request, Response]): FSMBuilder[F, S, D, Request, Response] = {
       val terminateEvent: PartialFunction[StopEvent[S, D], F[Unit]] = { case msg =>
         x.terminateEvent(msg) >> y.terminateEvent(msg)
       }
 
-      FSMBuilder[F, S, D](
-        FSMConfig[F, S, D](
+      FSMBuilder[F, S, D, Request, Response](
+        FSMConfig[F, S, D, Request, Response](
           x.config.debug || y.config.debug,
-          (event: Any, sender, state: State[S, D]) => {
+          (event: Any, sender, state: State[S, D, Request, Response]) => {
             optionallyExecute(x.config.debug, x.config.receive(event, sender, state))
             optionallyExecute(y.config.debug, y.config.receive(event, sender, state))
           },
-          (oldState: State[S, D], newState: State[S, D]) =>
+          (oldState: State[S, D, Request, Response], newState: State[S, D, Request, Response]) =>
             optionallyExecute(x.config.debug, x.config.transition(oldState, newState)) >>
               optionallyExecute(y.config.debug, y.config.transition(oldState, newState))
         ),

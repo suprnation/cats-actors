@@ -16,6 +16,7 @@
 
 package com.suprnation.actor.dispatch
 
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor._
 
 sealed trait SystemMessage[F[+_]] extends PossiblyHarmful
@@ -42,23 +43,23 @@ object SystemMessage {
 
   final case class Terminate[F[+_]]() extends SystemMessage[F] with DeadLetterSuppression
 
-  final case class Supervise[F[+_]](child: ActorRef[F]) extends SystemMessage[F]
+  final case class Supervise[F[+_]](child: NoSendActorRef[F]) extends SystemMessage[F]
 
-  final case class Watch[F[+_]](watchee: InternalActorRef[F], watcher: InternalActorRef[F])
+  final case class Watch[F[+_], Request](watchee: NoSendActorRef[F], watcher: NoSendActorRef[F], onTerminated: Request)
       extends SystemMessage[F]
 
-  final case class UnWatch[F[+_]](watchee: ActorRef[F], watcher: ActorRef[F])
+  final case class UnWatch[F[+_]](watchee: NoSendActorRef[F], watcher: NoSendActorRef[F])
       extends SystemMessage[F]
 
   case class NoMessage[F[+_]]() extends SystemMessage[F]
 
-  final case class Failed[F[+_]](child: ActorRef[F], cause: Throwable, uid: Int)
+  final case class Failed[F[+_]](child: NoSendActorRef[F], cause: Throwable, uid: Int)
       extends SystemMessage[F]
       with StashWhenFailed
       with StashWhenWaitingForChildren
 
   final case class DeathWatchNotification[F[+_]](
-      actor: ActorRef[F],
+      actor: NoSendActorRef[F],
       existenceConfirmed: Boolean,
       addressTerminated: Boolean
   ) extends SystemMessage[F]

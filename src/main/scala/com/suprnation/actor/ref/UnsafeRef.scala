@@ -28,6 +28,11 @@ class UnsafeRef[F[_]: Sync, A] private (private var value: A) {
     value = f(value)
   }
 
+  @inline def updateAndGet(f: A => A): F[A] = Sync[F].delay {
+    value = f(value)
+    value
+  }
+
   @inline def modify[B](f: A => (A, B)): F[B] = Sync[F].delay {
     val (newValue, result) = f(value)
     value = newValue

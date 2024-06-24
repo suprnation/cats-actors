@@ -2,33 +2,32 @@ package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
+import com.suprnation.actor.Actor.Actor
+import com.suprnation.actor.ActorSystem
 import com.suprnation.actor.fsm.FSM
 import com.suprnation.actor.fsm.FSM.Event
-import com.suprnation.actor.props.{Props, PropsF}
-import com.suprnation.actor.{Actor, ActorSystem}
 import com.suprnation.typelevel.actors.syntax.ActorSystemDebugOps
+import com.suprnation.typelevel.fsm.syntax.Timeout
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
-
-import scala.concurrent.duration.FiniteDuration
 
 sealed trait TimeoutState
 case object NoTimeout extends TimeoutState
 case object DefaultTimeout extends TimeoutState
 
 sealed trait TimeoutRequest
-case class GotoNoTimeoutState(forceTimeout: Option[FiniteDuration] = None) extends TimeoutRequest
-case class GotoTimeoutState(forceTimeout: Option[FiniteDuration] = None) extends TimeoutRequest
+case class GotoNoTimeoutState(forceTimeout: Timeout[TimeoutRequest] = None) extends TimeoutRequest
+case class GotoTimeoutState(forceTimeout: Timeout[TimeoutRequest] = None) extends TimeoutRequest
 
 object TimeoutActor {
-  def timeoutActor(startWith: TimeoutState): IO[Actor[IO]] =
-    FSM[IO, TimeoutState, Int]
+  def timeoutActor(startWith: TimeoutState): IO[Actor[IO, TimeoutRequest]] =
+    FSM[IO, TimeoutState, Int, TimeoutRequest, Any]
       .when(NoTimeout) {
         case (Event(GotoNoTimeoutState(None), _), sM) => sM.stay()
         case (Event(GotoNoTimeoutState(fd), _), sM)   => sM.forMax(fd)
-        case (Event(GotoTimeoutState, data), sM)      => sM.stayAndReply(data)
+        case (Event(GotoTimeoutState(_), data), sM)   => sM.stayAndReply(data)
       }
-//      .withConfig(FSMConfig.withConsoleInformation)
+      //      .withConfig(FSMConfig.withConsoleInformation)
       .startWith(startWith, 0)
       .initialize
 
@@ -39,10 +38,10 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.actorOf(PropsF[IO](PeanoNumbers.peanoNumbers))
+      peanoNumber <- actorSystem.replyingActorOf[PeanoNumber, Int](PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(peanoNumber, buffer)),
+      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
+        AbsorbReplyActor(peanoNumber, buffer),
         "peano-number-absorb-actor"
       )
       _ <- peanoNumberActor ! Zero
@@ -60,10 +59,10 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.actorOf(PropsF[IO](PeanoNumbers.peanoNumbers))
+      peanoNumber <- actorSystem.replyingActorOf[PeanoNumber, Int](PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(peanoNumber, buffer)),
+      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
+        AbsorbReplyActor(peanoNumber, buffer),
         "peano-number-absorb-actor"
       )
       _ <- peanoNumberActor ! Zero
@@ -81,10 +80,10 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.actorOf(PropsF[IO](PeanoNumbers.peanoNumbers))
+      peanoNumber <- actorSystem.replyingActorOf[PeanoNumber, Int](PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(peanoNumber, buffer)),
+      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
+        AbsorbReplyActor(peanoNumber, buffer),
         "peano-number-absorb-actor"
       )
       _ <- peanoNumberActor ! Zero
@@ -102,10 +101,10 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.actorOf(PropsF[IO](PeanoNumbers.peanoNumbers))
+      peanoNumber <- actorSystem.replyingActorOf[PeanoNumber, Int](PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(peanoNumber, buffer)),
+      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
+        AbsorbReplyActor(peanoNumber, buffer),
         "peano-number-absorb-actor"
       )
       _ <- peanoNumberActor ! Zero
@@ -121,10 +120,10 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.actorOf(PropsF[IO](PeanoNumbers.peanoNumbers))
+      peanoNumber <- actorSystem.replyingActorOf[PeanoNumber, Int](PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(peanoNumber, buffer)),
+      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
+        AbsorbReplyActor(peanoNumber, buffer),
         "peano-number-absorb-actor"
       )
       _ <- peanoNumberActor ! Zero
@@ -140,10 +139,10 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.actorOf(PropsF[IO](PeanoNumbers.peanoNumbers))
+      peanoNumber <- actorSystem.replyingActorOf[PeanoNumber, Int](PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(peanoNumber, buffer)),
+      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
+        AbsorbReplyActor(peanoNumber, buffer),
         "peano-number-absorb-actor"
       )
       _ <- peanoNumberActor ! Zero

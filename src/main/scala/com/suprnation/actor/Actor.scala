@@ -20,25 +20,30 @@ import cats.effect.std.Console
 import cats.effect.{Concurrent, Temporal}
 import cats.syntax.all._
 import cats.{Monad, MonadThrow, Parallel}
-import com.suprnation.actor.Actor.Receive
+import com.suprnation.actor.Actor.{Actor, Receive, ReplyingReceive}
+import com.suprnation.actor.ActorRef.NoSendActorRef
+import com.suprnation.actor.ReplyingActor.withReceive
 
 import java.util.UUID
 
 object Behaviour {
-  def emptyBehavior[F[+_]: MonadThrow]: PartialFunction[Any, F[Any]] = new Receive[F] {
-    def isDefinedAt(x: Any): Boolean = false
+  def emptyBehavior[F[+_]: MonadThrow, Request, Response]: PartialFunction[Request, F[Response]] =
+    new ReplyingReceive[F, Request, Response] {
+      def isDefinedAt(x: Request): Boolean = false
 
-    def apply(x: Any): F[Any] = MonadThrow[F].raiseError(
-      new UnsupportedOperationException(
-        s"[Message: $x] is not supported.  Please update the apply() method in the Receive partial function to be able to handle this.  "
+      def apply(x: Request): F[Response] = MonadThrow[F].raiseError(
+        new UnsupportedOperationException(
+          s"[Message: $x] is not supported.  Please update the apply() method in the Receive partial function to be able to handle this.  "
+        )
       )
-    )
-  }
+    }
 
-  def ignoringBehaviour[F[+_]: Monad: Console](prefix: String): Receive[F] = new Receive[F] {
-    def isDefinedAt(x: Any): Boolean = true
+  def ignoringBehaviour[F[+_]: Monad: Console, Request](
+      prefix: String
+  ): Receive[F, Request] = new Receive[F, Request] {
+    def isDefinedAt(x: Request): Boolean = true
 
-    def apply(msg: Any): F[Any] =
+    def apply(msg: Request): F[Request] =
       Console[F]
         .println(
           s"[Prefix: $prefix] Received [Message: $msg] and ignoring.  If this is not your intention please consider updating the Receive partial function or update the aroundReceive method.   "
@@ -47,28 +52,44 @@ object Behaviour {
   }
 }
 
-object Actor {
-
-  type Message = Any
-  type Receive[F[_]] = PartialFunction[Any, F[Any]]
+object ReplyingActor {
   val ACTOR_NOT_INITIALIZED = new Error(
     "Actor not set.  Possibly actor has been stopped or not initialised.  "
   )
 
-  def empty[F[+_]: Parallel: Concurrent: Temporal]: Actor[F] = withReceive(Behaviour.emptyBehavior)
+  def empty[F[+_]: Parallel: Concurrent: Temporal, Request, Response]
+      : ReplyingActor[F, Request, Response] =
+    withReceive(
+      Behaviour.emptyBehavior
+    )
 
-  def ignoring[F[+_]: Parallel: Concurrent: Temporal: Console]: Actor[F] = withReceive(
-    Behaviour.ignoringBehaviour(UUID.randomUUID().toString)
-  )
-
-  def withReceive[F[+_]: Parallel: Concurrent: Temporal](
-      _receive: PartialFunction[Any, F[Any]]
-  ): Actor[F] = new Actor[F] {
-    override def receive: Receive[F] = _receive
-  }
-
-  def ignoring[F[+_]: Parallel: Concurrent: Temporal: Console](name: String): Actor[F] =
+  def ignoring[F[+_]: Parallel: Concurrent: Temporal: Console, Request](
+      name: String
+  ): Actor[F, Request] =
     withReceive(Behaviour.ignoringBehaviour(name))
+
+  def withReceive[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
+      _receive: PartialFunction[Request, F[Response]]
+  ): ReplyingActor[F, Request, Response] = new ReplyingActor[F, Request, Response] {
+    override def receive: ReplyingReceive[F, Request, Response] = _receive
+  }
+}
+
+object Actor {
+  type Receive[F[+_], -Request] = PartialFunction[Request, F[Any]]
+  type ReplyingReceive[F[+_], -Request, +Response] = PartialFunction[Request, F[Response]]
+  type Actor[F[+_], Request] = ReplyingActor[F, Request, Any]
+
+  def empty[F[+_]: Parallel: Concurrent: Temporal, Request]: Actor[F, Request] =
+    withReceive(
+      Behaviour.emptyBehavior
+    )
+
+  def ignoring[F[+_]: Parallel: Concurrent: Temporal: Console, Request]
+      : ReplyingActor[F, Request, Any] =
+    withReceive(
+      Behaviour.ignoringBehaviour(UUID.randomUUID().toString)
+    )
 
 }
 
@@ -78,25 +99,26 @@ object Actor {
   *   - ''RUNNING'' (created and started actor) - can receive messages
   *   - ''SHUTDOWN'' (when 'stop' is invoked) - can't do anything
   *
-  * The Actor's own [[ActorRef]] is available as `self`, the current message's sender as `sender()` and the [[ActorContext]] as `context`. The only abstract method is `receive` which shall return the initial behaviour of the actor as a partial function (behaviour can be changed using `context.become` and `context.unbecome`).
+  * The Actor's own [[ReplyingActorRef]] is available as `self`, the current message's sender as `sender()` and the [[ActorContext]] as `context`. The only abstract method is `receive` which shall return the initial behaviour of the actor as a partial function (behaviour can be changed using `context.become` and `context.unbecome`).
   */
-abstract class Actor[F[+_]: Concurrent: Parallel: Temporal] {
+abstract class ReplyingActor[F[+_]: Concurrent: Parallel: Temporal, Request, Response] {
+
   // These two properties we have to set them manually
   // We do this because we do not want a Ref for the context to make the DX easier.
   // We also do not want a Ref on self to make the DX easier.
-  implicit val context: ActorContext[F] = null
-  final val self: ActorRef[F] = null
-  implicit def implicitSelf: Option[ActorRef[F]] = Option(self)
+  implicit val context: ActorContext[F, Request, Response] = null
+  final val self: ReplyingActorRef[F, Request, Response] = null
+  implicit def implicitSelf: Option[ReplyingActorRef[F, Request, Response]] = Option(self)
 
   def init: F[Unit] = Concurrent[F].unit
 
-  def sender: Option[ActorRef[F]] = context.sender
+  def sender: Option[NoSendActorRef[F]] = context.sender
 
-  def receive: Receive[F] = Behaviour.emptyBehavior[F]
+  def receive: ReplyingReceive[F, Request, Response] = Behaviour.emptyBehavior[F, Request, Response]
 
   /** Internal API
     *
-    * Can be overriden to intercept calls to the actor errors when receiving messages.
+    * Can be override to intercept calls to the actor errors when receiving messages.
     */
   def onError(reason: Throwable, message: Option[Any]): F[Unit] = Monad[F].unit
 
@@ -113,15 +135,19 @@ abstract class Actor[F[+_]: Concurrent: Parallel: Temporal] {
     * @param msg
     *   current message
     */
-  @inline private[actor] def aroundReceive(receive: Actor.Receive[F], msg: Any): F[Any] =
-    receive.applyOrElse(msg, unhandled)
+  @inline private[actor] def aroundReceive(
+      receive: Receive[F, Request],
+      msg: Any
+  ): F[Any] =
+    receive.applyOrElse(msg.asInstanceOf[Request], unhandled)
 
   /** User overridable callback. <p/> Is called when a message isn't handled by the current behaviour of the actor by default it fails with either [[com.suprnation.actor.DeathPactException]] (in case of an unhandled [[com.suprnation.actor.Terminated]] message) or publishes an [[com.suprnation.actor.UnhandledMessage]] to the actor system's event stream.
     */
-  def unhandled(message: Any): F[Unit] = message match {
-    case Terminated(dead) => MonadThrow[F].raiseError(DeathPactException(dead))
+  def unhandled(message: Any): F[Any] = message match {
+    case Terminated(dead, _) => MonadThrow[F].raiseError(DeathPactException(dead))
     case _ =>
-      context.system.eventStream.offer(UnhandledMessage(message, context.sender, self).toString)
+      context.system.eventStream
+        .offer(UnhandledMessage(message, context.sender, self).toString)
   }
 
   /** Internal API
@@ -153,7 +179,7 @@ abstract class Actor[F[+_]: Concurrent: Parallel: Temporal] {
   private[actor] def aroundPreRestart(reason: Option[Throwable], message: Option[Any]): F[Unit] =
     preRestart(reason, message)
 
-  /** User overridable callback '''By default it disposes of all children and then calls `postStop()``'''
+  /** User overridable callback '''By default it disposes of all children and then calls `postStop()`'''
     *
     * @param reason
     *   the Throwable that caused the restart to happen
@@ -168,7 +194,7 @@ abstract class Actor[F[+_]: Concurrent: Parallel: Temporal] {
     for {
       children <- context.children
       _ <- children.toList
-        .parTraverse_ { (child: ActorRef[F]) =>
+        .parTraverse_ { (child: NoSendActorRef[F]) =>
           context.unwatch(child) >> context.stop(child)
         }
       _ <- postStop
@@ -214,4 +240,11 @@ abstract class Actor[F[+_]: Concurrent: Parallel: Temporal] {
   /** User overridble callback. <p/> Is called when an Actor is resumed.
     */
   def preResume: F[Unit] = Monad[F].unit
+
+  /** Narrow this actor to only allow a subclass of messages to be sent, used when we want to create a view
+    * @tparam U a subclass of Request
+    * @return the narrowed actor
+    */
+  def narrow[U <: Request]: ReplyingActor[F, U, Response] =
+    this.asInstanceOf[ReplyingActor[F, U, Response]]
 }

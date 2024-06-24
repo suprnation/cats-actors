@@ -1140,7 +1140,7 @@ class SupervisionSpecAllForOne extends AsyncFlatSpec with Matchers {
           )
         )
 
-        //        parentErrorMessageBuffer should be(List.empty)
+        // parentErrorMessageBuffer should be(List.empty)
         eventBuffer.size should be(1)
         deadLetterBuffer.size should be(3)
         deadLetterBuffer should contain.allOf(

@@ -2,9 +2,9 @@ package com.suprnation.actor.suspension
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
-import com.suprnation.actor.Actor.Receive
-import com.suprnation.actor.props.Props
-import com.suprnation.actor.{Actor, ActorRef, ActorSystem, InternalActorRef}
+import com.suprnation.actor.Actor.{Actor, Receive}
+import com.suprnation.actor.suspension.Suspension.{suspensionExample, suspensionExampleWithPreStart}
+import com.suprnation.actor.{ActorSystem, InternalActorRef, ReplyingActorRef}
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
@@ -13,24 +13,27 @@ import scala.language.postfixOps
 
 object Suspension {
 
-  def commonReceive[F[+_]](self: ActorRef[F]): Receive[IO] = {
+  def commonReceive[F[+_]](self: ReplyingActorRef[F, String, Any]): Receive[IO, String] = {
     // Cheat a bit to make sure we are able to suspend
-    case "suspend" => IO.println("Suspending") >> self.asInstanceOf[InternalActorRef[IO]].suspend()
+    case "suspend" =>
+      IO.println("Suspending") >> self.asInstanceOf[InternalActorRef[IO, String, Any]].suspend()
     // Cheat a bit to make sure we are able to resume
-    case "resume" => IO.println("Resuming") >> self.asInstanceOf[InternalActorRef[IO]].resume(None)
-    case _      => IO.unit
+    case "resume" =>
+      IO.println("Resuming") >> self.asInstanceOf[InternalActorRef[IO, String, Any]].resume(None)
+    case _ => IO.unit
   }
 
-  case class SuspensionExampleWithPrestart() extends Actor[IO] {
-    override def preStart: IO[Unit] = {
-      (IO.sleep(30 millis) >>  IO.println("Resuming!! VIL") >>  self.asInstanceOf[InternalActorRef[IO]].resume(None)).start.void
-    }
+  def suspensionExampleWithPreStart: Actor[IO, String] = new Actor[IO, String] {
+    override def preStart: IO[Unit] =
+      (IO.sleep(30 millis) >> IO.println("Resuming!! VIL") >> self
+        .asInstanceOf[InternalActorRef[IO, String, Any]]
+        .resume(None)).start.void
 
-    override def receive: Receive[IO] = commonReceive(self)
+    override def receive: Receive[IO, String] = commonReceive(self)
   }
 
-  case class SuspensionExample() extends Actor[IO] {
-    override def receive: Receive[IO] = commonReceive(self)
+  def suspensionExample: Actor[IO, String] = new Actor[IO, String] {
+    override def receive: Receive[IO, String] = commonReceive(context.self)
   }
 }
 
@@ -39,7 +42,7 @@ class SuspensionSpec extends AsyncFlatSpec with Matchers {
   it should "be able to suspend mailbox and resume it (pre-start)" in {
     (for {
       system <- ActorSystem[IO]("Suspension System").allocated.map(_._1)
-      input <- system.actorOf(Props[IO](Suspension.SuspensionExampleWithPrestart()), "suspension")
+      input <- system.actorOf[String](suspensionExampleWithPreStart, "suspension")
       _ <- input ! "suspend"
       result <- IO.race(IO.sleep(50 millis), input ?! "Post Suspend")
     } yield result).unsafeToFuture().map {
@@ -51,7 +54,7 @@ class SuspensionSpec extends AsyncFlatSpec with Matchers {
   it should "be able to suspend mailbox" in {
     (for {
       system <- ActorSystem[IO]("Suspension System").allocated.map(_._1)
-      input <- system.actorOf(Props[IO](Suspension.SuspensionExample()), "suspension")
+      input <- system.actorOf[String](suspensionExample, "suspension")
       _ <- ((input ! s"Pre-Suspend ${System.currentTimeMillis()}") >> IO.sleep(
         1 millis
       )).foreverM.start

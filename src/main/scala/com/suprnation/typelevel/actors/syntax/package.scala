@@ -21,5 +21,5 @@ package object syntax
     with AllActorDebugSyntax
     with BooleanSyntax
     with AssertionSyntax
-    with FActorSyntax
-    with ShutdownHookSyntax {}
+    with ShutdownHookSyntax
+    with DebugActorSyntax {}

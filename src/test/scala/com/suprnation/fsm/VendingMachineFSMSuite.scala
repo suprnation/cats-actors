@@ -2,19 +2,20 @@ package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
-import com.suprnation.actor.Actor.Receive
-import com.suprnation.actor.props.{Props, PropsF}
-import com.suprnation.actor.{Actor, ActorRef, ActorSystem}
-import com.suprnation.fsm.VendingMachine.Item
+import com.suprnation.actor.Actor.{Actor, Receive}
+import com.suprnation.actor.ActorRef.ActorRef
+import com.suprnation.actor.ActorSystem
 import com.suprnation.typelevel.actors.syntax.ActorSystemDebugOps
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 /** This actor will watch all replies from the underlying actor and save the replies.
   */
-case class AbsorbReplyActor(forwardTo: ActorRef[IO], replyBuffer: Ref[IO, Vector[Any]])
-    extends Actor[IO] {
-  override def receive: Receive[IO] = {
+case class AbsorbReplyActor[Msg](
+    forwardTo: ActorRef[IO, Msg],
+    replyBuffer: Ref[IO, Vector[Any]]
+) extends Actor[IO, Msg] {
+  override def receive: Receive[IO, Msg] = {
     // The actor has replied to us - let's record this.
     case message if sender.isDefined && sender.get == forwardTo =>
       replyBuffer.update(_ ++ Vector(message))
@@ -28,19 +29,17 @@ class VendingMachineFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor").allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      vendingMachine <- actorSystem.actorOf(
-        PropsF[IO](
-          VendingMachine.vendingMachine(
-            Item("pizza", 10, 1.00),
-            Item("water", 50, 0.50),
-            Item("burger", 10, 3.00)
-          )
+      vendingMachine <- actorSystem.replyingActorOf(
+        VendingMachine.vendingMachine(
+          Item("pizza", 10, 1.00),
+          Item("water", 50, 0.50),
+          Item("burger", 10, 3.00)
         ),
         "VendingMachine"
       )
 
-      vendingMachineProxy <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(vendingMachine, buffer)),
+      vendingMachineProxy <- actorSystem.actorOf[VendingRequest](
+        AbsorbReplyActor(vendingMachine, buffer),
         "absorb-actor"
       )
       _ <- vendingMachineProxy ! SelectProduct("pizza")
@@ -56,18 +55,16 @@ class VendingMachineFSMSuite extends AsyncFlatSpec with Matchers {
       actorSystem <- ActorSystem[IO]("FSM Actor").allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
       vendingMachine <- actorSystem.actorOf(
-        PropsF[IO](
-          VendingMachine.vendingMachine(
-            Item("pizza", 10, 10.00),
-            Item("water", 50, 0.50),
-            Item("burger", 10, 3.00)
-          )
+        VendingMachine.vendingMachine(
+          Item("pizza", 10, 10.00),
+          Item("water", 50, 0.50),
+          Item("burger", 10, 3.00)
         ),
         "VendingMachine"
       )
 
-      vendingMachineProxy <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(vendingMachine, buffer)),
+      vendingMachineProxy <- actorSystem.actorOf[VendingRequest](
+        AbsorbReplyActor(vendingMachine, buffer),
         "absorb-actor"
       )
       _ <- vendingMachineProxy ! SelectProduct("pizza")
@@ -113,17 +110,15 @@ class VendingMachineFSMSuite extends AsyncFlatSpec with Matchers {
     (for {
       actorSystem <- ActorSystem[IO]("FSM Actor").allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
-      vendingMachine <- actorSystem.actorOf(
-        PropsF[IO](
-          VendingMachine.vendingMachine(
-            Item("pizza", 0, 10.00)
-          )
+      vendingMachine <- actorSystem.actorOf[VendingRequest](
+        VendingMachine.vendingMachine(
+          Item("pizza", 0, 10.00)
         ),
         "VendingMachine"
       )
 
-      vendingMachineProxy <- actorSystem.actorOf(
-        Props[IO](AbsorbReplyActor(vendingMachine, buffer)),
+      vendingMachineProxy <- actorSystem.actorOf[VendingRequest](
+        AbsorbReplyActor(vendingMachine, buffer),
         "absorb-actor"
       )
       _ <- vendingMachineProxy ! SelectProduct("pizza")

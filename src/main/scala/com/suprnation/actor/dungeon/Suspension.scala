@@ -21,10 +21,9 @@ import cats.effect.kernel.Concurrent
 import com.suprnation.actor.dungeon.Dispatch.DispatchContext
 import com.suprnation.actor.engine.ActorCell
 
-trait Suspension[F[+_]] {
-  self: ActorCell[F] =>
-
-  val dispatchContext: DispatchContext[F]
+trait Suspension[F[+_], Request, Response] {
+  self: ActorCell[F, Request, Response] =>
+  val dispatchContext: DispatchContext[F, Any, Any]
   val concurrentF: Concurrent[F]
 
   def resumeNonRecursive: F[Unit] =

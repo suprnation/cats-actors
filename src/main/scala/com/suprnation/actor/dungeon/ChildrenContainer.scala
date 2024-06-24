@@ -16,6 +16,7 @@
 
 package com.suprnation.actor.dungeon
 
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor._
 
 import scala.collection.immutable
@@ -23,17 +24,17 @@ import scala.collection.immutable
 trait ChildrenContainer[F[+_]] {
   def add(name: String, stats: ChildRestartStats[F]): ChildrenContainer[F]
 
-  def remove(child: ActorRef[F]): ChildrenContainer[F]
+  def remove(child: NoSendActorRef[F]): ChildrenContainer[F]
 
   def getByName(name: String): Option[ChildStats]
 
-  def getByRef(actor: ActorRef[F]): Option[ChildRestartStats[F]]
+  def getByRef(actor: NoSendActorRef[F]): Option[ChildRestartStats[F]]
 
-  def children: immutable.List[ActorRef[F]]
+  def children: immutable.List[NoSendActorRef[F]]
 
   def stats: immutable.List[ChildRestartStats[F]]
 
-  def shallDie(actor: ActorRef[F]): ChildrenContainer[F]
+  def shallDie(actor: NoSendActorRef[F]): ChildrenContainer[F]
 
   def isTerminating: Boolean = false
 
@@ -69,17 +70,17 @@ object ChildrenContainer {
     override def add(name: String, stats: ChildRestartStats[F]): ChildrenContainer[F] =
       new NormalChildrenContainer(emptyStats.updated(name, stats))
 
-    override def remove(child: ActorRef[F]): ChildrenContainer[F] = this
+    override def remove(child: NoSendActorRef[F]): ChildrenContainer[F] = this
 
     override def getByName(name: String): Option[ChildStats] = None
 
-    override def getByRef(actor: ActorRef[F]): Option[ChildRestartStats[F]] = None
+    override def getByRef(actor: NoSendActorRef[F]): Option[ChildRestartStats[F]] = None
 
-    override def children: immutable.List[ActorRef[F]] = List.empty
+    override def children: immutable.List[NoSendActorRef[F]] = List.empty
 
     override def stats: immutable.List[ChildRestartStats[F]] = List.empty
 
-    override def shallDie(actor: ActorRef[F]): ChildrenContainer[F] = this
+    override def shallDie(actor: NoSendActorRef[F]): ChildrenContainer[F] = this
 
     override def reserve(name: String): ChildrenContainer[F] =
       new NormalChildrenContainer(emptyStats.updated(name, ChildNameReserved))
@@ -100,17 +101,17 @@ object ChildrenContainer {
 
     override def isNormal: Boolean = false
 
-    override def remove(child: ActorRef[F]): ChildrenContainer[F] = this
+    override def remove(child: NoSendActorRef[F]): ChildrenContainer[F] = this
 
     override def getByName(name: String): Option[ChildStats] = None
 
-    override def getByRef(actor: ActorRef[F]): Option[ChildRestartStats[F]] = None
+    override def getByRef(actor: NoSendActorRef[F]): Option[ChildRestartStats[F]] = None
 
-    override def children: immutable.List[ActorRef[F]] = List.empty
+    override def children: immutable.List[NoSendActorRef[F]] = List.empty
 
     override def stats: immutable.List[ChildRestartStats[F]] = List.empty
 
-    override def shallDie(actor: ActorRef[F]): ChildrenContainer[F] = this
+    override def shallDie(actor: NoSendActorRef[F]): ChildrenContainer[F] = this
 
     override def reserve(name: String): ChildrenContainer[F] =
       throw new IllegalStateException(
@@ -130,26 +131,26 @@ object ChildrenContainer {
     override def add(name: String, stats: ChildRestartStats[F]): ChildrenContainer[F] =
       new NormalChildrenContainer(c.updated(name, stats))
 
-    override def remove(child: ActorRef[F]): ChildrenContainer[F] = NormalChildrenContainer(
+    override def remove(child: NoSendActorRef[F]): ChildrenContainer[F] = NormalChildrenContainer(
       c - child.path.name
     )
 
     override def getByName(name: String): Option[ChildStats] = c.get(name)
 
-    override def getByRef(actor: ActorRef[F]): Option[ChildRestartStats[F]] =
+    override def getByRef(actor: NoSendActorRef[F]): Option[ChildRestartStats[F]] =
       c.get(actor.path.name) match {
         case c @ Some(crs: ChildRestartStats[?]) if crs.child == actor =>
           c.asInstanceOf[Option[ChildRestartStats[F]]]
         case _ => None
       }
 
-    override def children: immutable.List[ActorRef[F]] =
-      if (c.isEmpty) immutable.List.empty[ActorRef[F]] else stats.map(_.child)
+    override def children: immutable.List[NoSendActorRef[F]] =
+      if (c.isEmpty) immutable.List.empty[NoSendActorRef[F]] else stats.map(_.child)
 
     override def stats: immutable.List[ChildRestartStats[F]] =
       if (c.isEmpty) immutable.List.empty[ChildRestartStats[F]] else toChildRestartStats(c)
 
-    override def shallDie(actor: ActorRef[F]): ChildrenContainer[F] =
+    override def shallDie(actor: NoSendActorRef[F]): ChildrenContainer[F] =
       TerminatingChildrenContainer(c, Set(actor), UserRequest)
 
     override def reserve(name: String): ChildrenContainer[F] =
@@ -173,7 +174,7 @@ object ChildrenContainer {
     */
   final case class TerminatingChildrenContainer[F[+_]](
       c: immutable.HashMap[String, ChildStats],
-      toDie: Set[ActorRef[F]],
+      toDie: Set[NoSendActorRef[F]],
       reason: SuspendReason
   ) extends ChildrenContainer[F] {
 
@@ -181,8 +182,8 @@ object ChildrenContainer {
       c.updated(name, stats)
     )
 
-    override def remove(child: ActorRef[F]): ChildrenContainer[F] = {
-      val t: Set[ActorRef[F]] = toDie - child
+    override def remove(child: NoSendActorRef[F]): ChildrenContainer[F] = {
+      val t: Set[NoSendActorRef[F]] = toDie - child
       if (t.isEmpty) reason match {
         case Termination => new TerminatedChildrenContainer[F] {}
         case _           => NormalChildrenContainer(c - child.path.name)
@@ -192,20 +193,20 @@ object ChildrenContainer {
 
     override def getByName(name: String): Option[ChildStats] = c.get(name)
 
-    override def getByRef(actor: ActorRef[F]): Option[ChildRestartStats[F]] =
+    override def getByRef(actor: NoSendActorRef[F]): Option[ChildRestartStats[F]] =
       c.get(actor.path.name) match {
         case Some(crs: ChildRestartStats[?]) if crs.child == actor =>
           Option(crs.asInstanceOf[ChildRestartStats[F]])
         case _ => None
       }
 
-    override def children: immutable.List[ActorRef[F]] =
-      if (c.isEmpty) immutable.List.empty[ActorRef[F]] else stats.map(_.child)
+    override def children: immutable.List[NoSendActorRef[F]] =
+      if (c.isEmpty) immutable.List.empty[NoSendActorRef[F]] else stats.map(_.child)
 
     override def stats: immutable.List[ChildRestartStats[F]] =
       if (c.isEmpty) immutable.List.empty[ChildRestartStats[F]] else toChildRestartStats(c)
 
-    override def shallDie(actor: ActorRef[F]): ChildrenContainer[F] = copy(toDie = toDie + actor)
+    override def shallDie(actor: NoSendActorRef[F]): ChildrenContainer[F] = copy(toDie = toDie + actor)
 
     override def reserve(name: String): ChildrenContainer[F] = reason match {
       case Termination =>

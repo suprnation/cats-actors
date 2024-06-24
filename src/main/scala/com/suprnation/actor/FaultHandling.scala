@@ -19,6 +19,7 @@ package com.suprnation.actor
 import cats.effect.Concurrent
 import cats.implicits._
 import cats.{Applicative, Monad, Parallel}
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor.SupervisorStrategy.{Decider, defaultDecider}
 import com.suprnation.actor.event.Logging.LogLevel
 import com.suprnation.actor.event.{Error, LogEvent, Logging}
@@ -106,17 +107,17 @@ abstract class SupervisionStrategy[F[+_]: Monad] {
   /** This method is called after the child has been remove from the set of children. It does not need to do anything special. Exceptions throw from this method do NOT make the actor fail if this happens during termination.
     */
   def handleChildTerminated(
-      context: ActorContext[F],
-      child: ActorRef[F],
-      children: Iterable[ActorRef[F]]
+      context: MinimalActorContext[F, Nothing, Any],
+      child: NoSendActorRef[F],
+      children: Iterable[NoSendActorRef[F]]
   ): F[Unit]
 
   /** This method is called to act on the failure of a child: restart if the flag is true, stop otherwise.
     */
   def processFailure(
-      context: ActorContext[F],
+      context: MinimalActorContext[F, Nothing, Any],
       restart: Boolean,
-      child: ActorRef[F],
+      child: NoSendActorRef[F],
       cause: Option[Throwable],
       stats: ChildRestartStats[F],
       children: immutable.List[ChildRestartStats[F]]
@@ -128,8 +129,8 @@ abstract class SupervisionStrategy[F[+_]: Monad] {
     *   is a lazy collection (a view)
     */
   def handleFailure(
-      context: ActorContext[F],
-      child: ActorRef[F],
+      context: MinimalActorContext[F, Nothing, Any],
+      child: NoSendActorRef[F],
       cause: Throwable,
       stats: ChildRestartStats[F],
       children: immutable.List[ChildRestartStats[F]]
@@ -153,8 +154,8 @@ abstract class SupervisionStrategy[F[+_]: Monad] {
   }
 
   def logFailure(
-      context: ActorContext[F],
-      child: ActorRef[F],
+      context: MinimalActorContext[F, Nothing, Any],
+      child: NoSendActorRef[F],
       cause: Option[Throwable],
       decision: Directive
   ): F[Unit] =
@@ -189,7 +190,7 @@ abstract class SupervisionStrategy[F[+_]: Monad] {
       }
     } else Monad[F].unit
 
-  private def publish(context: ActorContext[F], logEvent: LogEvent): F[Unit] =
+  private def publish(context: MinimalActorContext[F, Nothing, Any], logEvent: LogEvent): F[Unit] =
     context.system.eventStream.offer(logEvent)
 
   /** Logging of actor failure is done when this is `true`
@@ -198,17 +199,17 @@ abstract class SupervisionStrategy[F[+_]: Monad] {
 
   /** Resume, the previously failed child: <b>do never apply this to a child which is not the currently failing child</b>. Suspend/resume needs to be done in matching pairs, otherwise actors will wake up too soon or never at all.
     */
-  final def resumeChild(child: ActorRef[F], cause: Option[Throwable]): F[Unit] =
-    child.asInstanceOf[InternalActorRef[F]].resume(cause)
+  final def resumeChild(child: NoSendActorRef[F], cause: Option[Throwable]): F[Unit] =
+    child.asInstanceOf[InternalActorRef[F, Nothing, Any]].resume(cause)
 
   /** Restart the given child, possibly suspending it first.* <b>IMPORTRANT: </b> If the child is the currently failing one, it will already have been suspended, hence `suspendFirst` must be false. If the child is not the currently failing one, then it did not request this treatment and is therefore not prepared to be resumed without prior suspend.
     */
   final def restartChild(
-      child: ActorRef[F],
+      child: NoSendActorRef[F],
       cause: Option[Throwable],
       suspendFirst: Boolean
   ): F[Unit] = {
-    val c: InternalActorRef[F] = child.asInstanceOf[InternalActorRef[F]]
+    val c: InternalActorRef[F, Nothing, Any] = child.asInstanceOf[InternalActorRef[F, Nothing, Any]]
     (if (suspendFirst) c.suspend(cause) else Monad[F].unit) >> c.restart(cause)
   }
 }
@@ -242,15 +243,15 @@ case class AllForOneStrategy[F[+_]: Monad: Parallel](
     )
 
   def handleChildTerminated(
-      context: ActorContext[F],
-      child: ActorRef[F],
-      children: Iterable[ActorRef[F]]
+      context: MinimalActorContext[F, Nothing, Any],
+      child: NoSendActorRef[F],
+      children: Iterable[NoSendActorRef[F]]
   ): F[Unit] = Monad[F].unit
 
   override def processFailure(
-      context: ActorContext[F],
+      context: MinimalActorContext[F, Nothing, Any],
       restart: Boolean,
-      child: ActorRef[F],
+      child: NoSendActorRef[F],
       cause: Option[Throwable],
       stats: ChildRestartStats[F],
       children: immutable.List[ChildRestartStats[F]]
@@ -295,15 +296,15 @@ case class OneForOneStrategy[F[+_]: Monad](
     copy(maxNrOfRetries = maxNrOfRetries)(decider)
 
   override def handleChildTerminated(
-      context: ActorContext[F],
-      child: ActorRef[F],
-      children: Iterable[ActorRef[F]]
+      context: MinimalActorContext[F, Nothing, Any],
+      child: NoSendActorRef[F],
+      children: Iterable[NoSendActorRef[F]]
   ): F[Unit] = Applicative[F].unit
 
   override def processFailure(
-      context: ActorContext[F],
+      context: MinimalActorContext[F, Nothing, Any],
       restart: Boolean,
-      child: ActorRef[F],
+      child: NoSendActorRef[F],
       cause: Option[Throwable],
       stats: ChildRestartStats[F],
       children: immutable.List[ChildRestartStats[F]]
@@ -322,15 +323,15 @@ case class TerminateActorSystem[F[+_]: Concurrent: Parallel](
 ) extends SupervisionStrategy[F] {
 
   def handleChildTerminated(
-      context: ActorContext[F],
-      child: ActorRef[F],
-      children: Iterable[ActorRef[F]]
+      context: MinimalActorContext[F, Nothing, Any],
+      child: NoSendActorRef[F],
+      children: Iterable[NoSendActorRef[F]]
   ): F[Unit] = Concurrent[F].unit
 
   override def processFailure(
-      context: ActorContext[F],
+      context: MinimalActorContext[F, Nothing, Any],
       restart: Boolean,
-      child: ActorRef[F],
+      child: NoSendActorRef[F],
       cause: Option[Throwable],
       stats: ChildRestartStats[F],
       children: immutable.List[ChildRestartStats[F]]

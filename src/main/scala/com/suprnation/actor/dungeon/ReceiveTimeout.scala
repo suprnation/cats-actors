@@ -24,23 +24,28 @@ import com.suprnation.actor.dungeon.ReceiveTimeout.ReceiveTimeoutContext
 import scala.concurrent.duration.FiniteDuration
 
 object ReceiveTimeout {
-  case class ReceiveTimeoutContext(
+  case class ReceiveTimeoutContext[Request](
       receiveTimeout: Option[FiniteDuration],
-      lastMessageTimestamp: Option[Long]
+      lastMessageTimestamp: Option[Long],
+      message: Option[Request]
   )
 }
 
-class ReceiveTimeout[F[_]: Sync](
-    receiveTimeoutContextRef: Ref[F, ReceiveTimeout.ReceiveTimeoutContext]
+class ReceiveTimeout[F[_]: Sync, Request](
+    receiveTimeoutContextRef: Ref[F, ReceiveTimeout.ReceiveTimeoutContext[Request]]
 ) {
 
-  def setReceiveTimeout(timeout: FiniteDuration): F[Unit] =
+  def setReceiveTimeout(timeout: FiniteDuration, onTimeout: => Request): F[Unit] =
     receiveTimeoutContextRef.set(
-      ReceiveTimeoutContext(Some(timeout), Some(System.currentTimeMillis()))
+      ReceiveTimeoutContext[Request](
+        Some(timeout),
+        Some(System.currentTimeMillis()),
+        Some(onTimeout)
+      )
     )
 
   def cancelReceiveTimeout: F[Unit] =
-    receiveTimeoutContextRef.update(_.copy(receiveTimeout = None))
+    receiveTimeoutContextRef.update(_.copy(receiveTimeout = None, message = None))
 
   def markLastMessageTimestamp: F[Unit] =
     receiveTimeoutContextRef.update { receiveTimeoutContext =>
@@ -51,15 +56,19 @@ class ReceiveTimeout[F[_]: Sync](
       }
     }
 
-  def checkTimeout(action: => F[Unit]): F[Unit] =
+  def checkTimeout(action: Request => F[Any]): F[Any] =
     receiveTimeoutContextRef.get.flatMap {
-      case ReceiveTimeoutContext(Some(timeout), Some(timestamp)) =>
-        val timeoutTime = timestamp + timeout.toMillis
-        val currentTime = System.currentTimeMillis()
+      case ReceiveTimeoutContext(Some(timeout), Some(timestamp), Some(message)) =>
+        val timeoutTime: Long = timestamp + timeout.toMillis
+        val currentTime: Long = System.currentTimeMillis()
         if (timeoutTime <= currentTime) {
           receiveTimeoutContextRef.set(
-            ReceiveTimeout.ReceiveTimeoutContext(Some(timeout), Some(System.currentTimeMillis()))
-          ) >> action
+            ReceiveTimeout.ReceiveTimeoutContext(
+              Some(timeout),
+              Some(System.currentTimeMillis()),
+              Some(message)
+            )
+          ) >> action(message)
         } else {
           Applicative[F].pure(())
         }

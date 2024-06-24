@@ -19,14 +19,16 @@ package com.suprnation.actor.debug
 import cats.Parallel
 import cats.effect.{Concurrent, Temporal}
 import cats.implicits._
-import com.suprnation.actor.{Actor, ActorLogging, ActorRef}
+import com.suprnation.actor.Actor.ReplyingReceive
+import com.suprnation.actor.{ActorLogging, ReplyingActor, ReplyingActorRef}
 
-case class DebugActor[F[+_]: Parallel: Concurrent: Temporal](input: ActorRef[F])
-    extends Actor[F]
-    with ActorLogging[F] {
-  override def receive: Actor.Receive[F] = { case msg: Any =>
+case class DebugActor[F[+_]: Parallel: Concurrent: Temporal, Request](
+    input: ReplyingActorRef[F, Request, Any]
+) extends ReplyingActor[F, Request, Any]
+    with ActorLogging[F, Request] {
+  override def receive: ReplyingReceive[F, Request, Any] = { case msg =>
     log(
       s"~~ redirect ~~>: [Name: ${input.path.name}] [Path: ${input.path}]] ${msg.toString}"
-    ) >> (input ?! msg)
+    ) >> (input ? msg)
   }
 }

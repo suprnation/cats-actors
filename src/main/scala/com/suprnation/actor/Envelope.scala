@@ -17,24 +17,32 @@
 package com.suprnation.actor
 
 import cats.effect.kernel.Deferred
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor.dispatch.SystemMessage
 
 object Envelope {
   def apply[F[+_], Message](message: Message)(implicit
       receiver: Receiver[F]
   ): Envelope[F, Message] = Envelope(message, None, receiver)
-  def apply[F[+_], Message](message: Message, sender: ActorRef[F])(implicit
-      receiver: Receiver[F]
+  def apply[F[+_], Message](message: Message, sender: NoSendActorRef[F])(implicit
+                                                                      receiver: Receiver[F]
   ): Envelope[F, Message] = Envelope(message, Some(sender), receiver)
-  def system[F[+_]](invocation: SystemMessage[F])(implicit sender: ActorRef[F]) =
+  def system[F[+_]](invocation: SystemMessage[F])(implicit sender: NoSendActorRef[F]) =
     SystemMessageEnvelope(invocation, Some(sender))
   def systemNoSender[F[+_]](invocation: SystemMessage[F]) = SystemMessageEnvelope(invocation, None)
 }
 
-case class Envelope[F[+_], A](message: A, sender: Option[ActorRef[F]], receiver: Receiver[F])
+case class Envelope[F[+_], A](
+    message: A,
+    sender: Option[NoSendActorRef[F]],
+    receiver: Receiver[F]
+)
 case class EnvelopeWithDeferred[F[+_], A](
     envelope: Envelope[F, A],
     deferred: Option[Deferred[F, Any]]
 )
 
-case class SystemMessageEnvelope[F[+_]](invocation: SystemMessage[F], sender: Option[ActorRef[F]])
+case class SystemMessageEnvelope[F[+_]](
+    invocation: SystemMessage[F],
+    sender: Option[NoSendActorRef[F]]
+)

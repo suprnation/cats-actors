@@ -18,16 +18,22 @@ package com.suprnation.typelevel.actors.syntax
 
 import cats.Parallel
 import cats.effect.kernel.Sync
+import cats.effect.std.Console
 import cats.effect.{Concurrent, Ref, Temporal}
-import com.suprnation.actor.Actor
+import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.debug.TrackingActor
 
 trait ActorSyntax {
-  implicit class ActorSyntaxFOps[F[+_]: Sync: Parallel: Concurrent: Temporal](fA: Actor[F]) {
+  implicit class ActorSyntaxFOps[F[
+      +_
+  ]: Sync: Parallel: Concurrent: Temporal: Console, Request, Response](
+      fA: ReplyingActor[F, Request, Response]
+  ) {
     import TrackingActor.ActorRefs
 
     def track(name: String)(implicit
         cache: Ref[F, Map[String, ActorRefs[F]]]
-    ): F[TrackingActor[F]] = TrackingActor.create[F](cache, name, fA)
+    ): F[TrackingActor[F, Request, Response]] =
+      TrackingActor.create[F, Request, Response](cache, name, fA)
   }
 }

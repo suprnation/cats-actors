@@ -19,8 +19,9 @@ import cats.Parallel
 import cats.effect.syntax.all._
 import cats.effect.{Concurrent, Deferred, Temporal}
 import cats.implicits._
+import com.suprnation.actor.ActorRef.NoSendActorRef
+import com.suprnation.actor.ActorSystem
 import com.suprnation.actor.engine.ActorCell
-import com.suprnation.actor.{ActorRef, ActorSystem}
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -49,17 +50,19 @@ trait ActorRefDebugSyntax {
 
   import ActorRefDebugSyntax._
 
-  final implicit class DebugActorRefSyntaxOps[F[+_]: Temporal](actorRef: ActorRef[F]) { self =>
+  final implicit class DebugActorRefSyntaxOps[F[+_]: Temporal](actorRef: NoSendActorRef[F]) {
+    self =>
     def waitForIdle: F[Unit] =
-      (actorRef.cell >>= ((c: ActorCell[F]) => waitForIdleDeferredOnIdleF(c.isIdle))).flatMap(_.get)
+      (actorRef.cell >>= ((c: ActorCell[F, ?, ?]) => waitForIdleDeferredOnIdleF(c.isIdle)))
+        .flatMap(_.get)
   }
 
   final implicit class DebugListActorRefSyntaxOps[F[+_]: Concurrent: Parallel: Temporal](
-      actorRefs: List[ActorRef[F]]
+      actorRefs: List[NoSendActorRef[F]]
   ) { self =>
     val systemsF: F[List[ActorSystem[F]]] =
       actorRefs
-        .map((actorRef: ActorRef[F]) => actorRef.cell.map(_.system))
+        .map((actorRef: NoSendActorRef[F]) => actorRef.cell.map(_.system))
         .sequence
 
     def waitForIdle: F[Unit] =

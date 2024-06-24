@@ -18,18 +18,18 @@ package com.suprnation.actor.fsm
 
 import scala.concurrent.duration.FiniteDuration
 
-trait StateManager[F[+_], S, D] {
-  def forMax(finiteDuration: Option[FiniteDuration]): F[State[S, D]]
+trait StateManager[F[+_], S, D, Request, Response] {
+  def forMax(timeoutData: Option[(FiniteDuration, Request)]): F[State[S, D, Request, Response]]
 
-  def goto(nextStateName: S): F[State[S, D]]
+  def goto(nextStateName: S): F[State[S, D, Request, Response]]
 
-  def stay(): F[State[S, D]]
+  def stay(): F[State[S, D, Request, Response]]
 
-  def stop(): F[State[S, D]] = stop(Normal)
+  def stop(): F[State[S, D, Request, Response]] = stop(Normal)
 
-  def stop(reason: Reason): F[State[S, D]]
+  def stop(reason: Reason): F[State[S, D, Request, Response]]
 
-  def stop(reason: Reason, stateData: D): F[State[S, D]]
+  def stop(reason: Reason, stateData: D): F[State[S, D, Request, Response]]
 
-  def stayAndReply(replyValue: Any): F[State[S, D]]
+  def stayAndReply(replyValue: Response): F[State[S, D, Request, Response]]
 }

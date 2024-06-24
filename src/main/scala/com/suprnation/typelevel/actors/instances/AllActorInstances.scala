@@ -16,4 +16,4 @@
 
 package com.suprnation.typelevel.actors.instances
 
-trait AllActorInstances extends DebugActorSyntax {}
+trait AllActorInstances {}

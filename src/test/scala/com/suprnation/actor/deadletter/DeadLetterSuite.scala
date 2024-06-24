@@ -3,12 +3,11 @@ package com.suprnation.actor.deadletter
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
 import cats.implicits._
-import com.suprnation.actor.Actor.Receive
+import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor._
 import com.suprnation.actor.deadletter.DeadLetterSuite.DeadLetterActor
 import com.suprnation.actor.debug.TrackingActor.ActorRefs
 import com.suprnation.actor.event.Debug
-import com.suprnation.actor.props.PropsF
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -16,8 +15,12 @@ import org.scalatest.matchers.should.Matchers
 import scala.collection.immutable.HashMap
 
 object DeadLetterSuite {
-  case class DeadLetterActor() extends Actor[IO] {
-    override def receive: Receive[IO] = {
+  trait DeadLetterRequest
+  object Kill extends DeadLetterRequest
+  case class Message(msg: String) extends DeadLetterRequest
+
+  case class DeadLetterActor() extends Actor[IO, String] {
+    override def receive: Receive[IO, String] = {
       case "kill" => context.stop(self).as("kill")
       case msg    => msg.pure[IO]
     }
@@ -36,19 +39,19 @@ class DeadLetterSuite extends AsyncFlatSpec with Matchers {
         "dead-letter-system",
         (msg: Any) =>
           msg match {
-            case Debug(logSource, _, m @ DeadLetter(msg, _, _))
+            case Debug(logSource, _, m @ DeadLetter(_, _, _))
                 if logSource.contains("Name:dead-letter") =>
               deadLetterBus.update(_ ++ List(m))
             case _ => IO.unit
           }
       ).allocated.map(_._1)
 
-      deadLetter <- actorSystem.actorOf(
-        PropsF[IO](DeadLetterActor().track("dead-letter-tracker")(buffer)),
+      deadLetter <- actorSystem.replyingActorOf(
+        DeadLetterActor().track("dead-letter-tracker")(buffer),
         "dead-letter"
       )
       _ <- (1 to numberOfMessages).map(index => deadLetter ! s"test-$index").toList.parSequence_
-      _ <- deadLetter ? [String] "kill"
+      _ <- deadLetter ? "kill"
       _ <- actorSystem.waitForIdle()
       _ <- (1 to numberOfDeadLetterMessages)
         .map(index => deadLetter ! s"dead-letter-$index")
@@ -87,19 +90,19 @@ class DeadLetterSuite extends AsyncFlatSpec with Matchers {
         "dead-letter-system",
         (msg: Any) =>
           msg match {
-            case Debug(logSource, _, m @ DeadLetter(msg, _, _))
+            case Debug(logSource, _, m @ DeadLetter(_, _, _))
                 if logSource.contains("Name:dead-letter") =>
               deadLetterBus.update(_ ++ List(m))
             case _ => IO.unit
           }
       ).allocated.map(_._1)
 
-      deadLetter <- actorSystem.actorOf(
-        PropsF[IO](DeadLetterActor().track("dead-letter-tracker")(buffer)),
+      deadLetter <- actorSystem.actorOf[String](
+        DeadLetterActor().track("dead-letter-tracker")(buffer),
         "dead-letter"
       )
       _ <- (1 to numberOfMessages).map(index => deadLetter ! s"test-$index").toList.parSequence_
-      _ <- deadLetter ? [String] "kill"
+      _ <- deadLetter ? "kill"
       _ <- (1 to numberOfDeadLetterMessages)
         .map(index => deadLetter ! s"dead-letter-$index")
         .toList

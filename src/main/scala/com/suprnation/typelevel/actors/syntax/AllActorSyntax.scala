@@ -16,4 +16,4 @@
 
 package com.suprnation.typelevel.actors.syntax
 
-trait AllActorSyntax extends ActorRefSyntax with ActorContextSyntax {}
+trait AllActorSyntax extends ActorRefSyntax {}

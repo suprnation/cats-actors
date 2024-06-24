@@ -24,36 +24,45 @@ import com.suprnation.actor.fsm._
 import scala.concurrent.duration.FiniteDuration
 
 trait FSMStateSyntax {
-  type Timeout = Option[FiniteDuration]
+  type Timeout[Request] = Option[(FiniteDuration, Request)]
 
-  final implicit class FSMStateSyntaxOps[F[+_]: Parallel: Monad, S, D](sF: F[State[S, D]]) {
+  final implicit class FSMStateSyntaxOps[F[+_]: Parallel: Monad, S, D, Request, Response](
+      sF: F[State[S, D, Request, Response]]
+  ) {
     self =>
 
-    def using(nextStateData: D): F[State[S, D]] =
+    def using(nextStateData: D): F[State[S, D, Request, Response]] =
       sF.map(s => s.using(nextStateData))
 
-    def withNotification(notifies: Boolean): F[State[S, D]] =
+    def withNotification(notifies: Boolean): F[State[S, D, Request, Response]] =
       sF.map(_.withNotification(notifies))
 
-    def withStopReason(reason: Reason): F[State[S, D]] =
+    def withStopReason(reason: Reason): F[State[S, D, Request, Response]] =
       sF.map(_.withStopReason(reason))
 
-    def replying(replyValue: Any): F[State[S, D]] =
+    def replying(replyValue: Response): F[State[S, D, Request, Response]] =
       sF.map(_.replying(replyValue))
   }
 
-  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D](
+  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D, Request, Response](
       stateName: S,
-      stateTimeout: Timeout = Option.empty[FiniteDuration]
+      stateTimeout: Timeout[Request] = Option.empty[(FiniteDuration, Request)]
   )(
-      stateFunction: PartialFunction[(FSM.Event[D], StateManager[F, S, D]), F[State[S, D]]]
-  ): FSMBuilder[F, S, D] = FSMBuilder[F, S, D]().when(stateName, stateTimeout)(stateFunction)
+      stateFunction: PartialFunction[(FSM.Event[D, Request], StateManager[F, S, D, Request, Response]), F[
+        State[S, D, Request, Response]
+      ]]
+  ): FSMBuilder[F, S, D, Request, Response] =
+    FSMBuilder[F, S, D, Request, Response]().when(stateName, stateTimeout)(stateFunction)
 
-  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D](
+  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D, Request, Response](
       stateName: S,
-      stateTimeout: FiniteDuration
+      stateTimeout: FiniteDuration,
+      onTimeout: Request
   )(
-      stateFunction: PartialFunction[(FSM.Event[D], StateManager[F, S, D]), F[State[S, D]]]
-  ): FSMBuilder[F, S, D] = FSMBuilder[F, S, D]().when(stateName, Some(stateTimeout))(stateFunction)
+      stateFunction: PartialFunction[(FSM.Event[D, Request], StateManager[F, S, D, Request, Response]), F[
+        State[S, D, Request, Response]
+      ]]
+  ): FSMBuilder[F, S, D, Request, Response] =
+    FSMBuilder[F, S, D, Request, Response]().when(stateName, Some(stateTimeout -> onTimeout))(stateFunction)
 
 }

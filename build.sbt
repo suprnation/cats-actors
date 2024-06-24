@@ -1,4 +1,4 @@
-ThisBuild / version := "1.0.2"
+ThisBuild / version := "2.0.0-RC1"
 
 ThisBuild / scalaVersion := "2.13.12"
 

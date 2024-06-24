@@ -16,6 +16,8 @@
 
 package com.suprnation.actor
 
+import com.suprnation.actor.ActorRef.NoSendActorRef
+
 import scala.beans.BeanProperty
 import scala.util.control.NoStackTrace
 
@@ -48,14 +50,14 @@ final case class InvalidActorNameException(message: String) extends AkkaExceptio
   * }}}
   */
 class ActorInitializationException[F[+_]] protected (
-    val actor: ActorRef[F],
+    val actor: NoSendActorRef[F],
     val message: String,
     val cause: Throwable
 ) extends AkkaException(ActorInitializationException.enrichedMessage(actor, message), cause) {}
 
 object ActorInitializationException {
   def apply[F[+_]](
-      actor: ActorRef[F],
+      actor: NoSendActorRef[F],
       message: String,
       cause: Throwable = null
   ): ActorInitializationException[F] =
@@ -64,7 +66,7 @@ object ActorInitializationException {
   def apply[F[+_]](message: String): ActorInitializationException[F] =
     new ActorInitializationException(null, message, null)
 
-  private def enrichedMessage[F[+_]](actor: ActorRef[F], message: String): String =
+  private def enrichedMessage[F[+_]](actor: NoSendActorRef[F], message: String): String =
     if (actor == null) message else s"${actor.path}: $message"
 
 }
@@ -81,7 +83,7 @@ object ActorInitializationException {
   *   is the message which was optionally passed into preRestart()
   */
 final case class PreRestartException[F[+_]](
-    override val actor: ActorRef[F],
+    override val actor: NoSendActorRef[F],
     override val cause: Throwable,
     originalCause: Option[Throwable],
     messageOption: Option[Any]
@@ -107,7 +109,7 @@ final case class PreRestartException[F[+_]](
   *   is the exception which caused the restart in the first place
   */
 final case class PostRestartException[F[+_]](
-    override val actor: ActorRef[F],
+    override val actor: NoSendActorRef[F],
     override val cause: Throwable,
     originalCause: Option[Throwable]
 ) extends ActorInitializationException[F](
@@ -122,7 +124,7 @@ final case class InvalidMessageException private (message: String) extends AkkaE
 
 /** A DeathPactException is thrown by an Actor that receives a Terminated(someActor) message that it doesn't handle itself, effectively crashing the Actor and escalating to the supervisor.
   */
-final case class DeathPactException[F[+_]] private (dead: ActorRef[F])
+final case class DeathPactException[F[+_]] private (dead: NoSendActorRef[F])
     extends AkkaException("Monitored actor [" + dead + "] terminated")
     with NoStackTrace
 
@@ -131,6 +133,6 @@ final case class DeathPactException[F[+_]] private (dead: ActorRef[F])
 @SerialVersionUID(1L)
 final case class UnhandledMessage[F[+_]](
     @BeanProperty message: Any,
-    @BeanProperty sender: Option[ActorRef[F]],
-    @BeanProperty recipient: ActorRef[F]
+    @BeanProperty sender: Option[NoSendActorRef[F]],
+    @BeanProperty recipient: NoSendActorRef[F]
 )
