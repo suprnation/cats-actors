@@ -237,7 +237,7 @@ _ <- actorRef ! "Hello"  // Error: Type mismatch
 _ <- actorRef ! 123      // Error: Type mismatch
 ```
 
-#### What `waitForTermination` do?
+#### What does `waitForTermination` do?
 The `waitForTermination` method is used to keep the actor system alive and waiting for messages unless the actor system
 itself dies internally, for example, due to supervision escalation. This is useful in scenarios where you want to ensure
 that the actor system remains active and responsive to incoming messages until it is explicitly terminated or an
