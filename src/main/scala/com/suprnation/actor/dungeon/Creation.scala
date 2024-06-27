@@ -187,7 +187,10 @@ trait Creation[F[+_], Request, Response] {
       )
     } yield result
 
-  override def become(behaviour: ReplyingReceive[F, Request, Response], discardOld: Boolean): F[Unit] =
+  override def become(
+      behaviour: ReplyingReceive[F, Request, Response],
+      discardOld: Boolean
+  ): F[Unit] =
     asyncF.delay {
       if (discardOld) creationContext.behaviourStack.pop()
       creationContext.behaviourStack.push(behaviour)

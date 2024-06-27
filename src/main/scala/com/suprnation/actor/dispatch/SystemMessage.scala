@@ -45,8 +45,11 @@ object SystemMessage {
 
   final case class Supervise[F[+_]](child: NoSendActorRef[F]) extends SystemMessage[F]
 
-  final case class Watch[F[+_], Request](watchee: NoSendActorRef[F], watcher: NoSendActorRef[F], onTerminated: Request)
-      extends SystemMessage[F]
+  final case class Watch[F[+_], Request](
+      watchee: NoSendActorRef[F],
+      watcher: NoSendActorRef[F],
+      onTerminated: Request
+  ) extends SystemMessage[F]
 
   final case class UnWatch[F[+_]](watchee: NoSendActorRef[F], watcher: NoSendActorRef[F])
       extends SystemMessage[F]

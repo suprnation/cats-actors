@@ -171,7 +171,10 @@ object ActorCell {
           }
         } yield ()
 
-      override def become(behaviour: ReplyingReceive[F, Request, Response], discardOld: Boolean): F[Unit] =
+      override def become(
+          behaviour: ReplyingReceive[F, Request, Response],
+          discardOld: Boolean
+      ): F[Unit] =
         actor.flatMap(_.context.become(behaviour, discardOld))
 
       override def unbecome: F[Unit] = actor.flatMap(_.context.unbecome)

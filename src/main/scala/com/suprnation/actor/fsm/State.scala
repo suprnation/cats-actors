@@ -37,7 +37,10 @@ object State {
   ): Option[(S, D, Timeout[Request], Option[Reason], List[Any])] =
     Some((state.stateName, state.stateData, state.timeout, state.stopReason, state.replies))
 
-  case class StateTimeoutWithSender[F[+_], Request](original: Option[NoSendActorRef[F]], msg: Request)
+  case class StateTimeoutWithSender[F[+_], Request](
+      original: Option[NoSendActorRef[F]],
+      msg: Request
+  )
 
   class SilentState[S, D, Request, Response](
       stateName: S,

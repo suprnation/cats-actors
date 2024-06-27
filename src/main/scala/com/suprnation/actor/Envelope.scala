@@ -25,7 +25,7 @@ object Envelope {
       receiver: Receiver[F]
   ): Envelope[F, Message] = Envelope(message, None, receiver)
   def apply[F[+_], Message](message: Message, sender: NoSendActorRef[F])(implicit
-                                                                      receiver: Receiver[F]
+      receiver: Receiver[F]
   ): Envelope[F, Message] = Envelope(message, Some(sender), receiver)
   def system[F[+_]](invocation: SystemMessage[F])(implicit sender: NoSendActorRef[F]) =
     SystemMessageEnvelope(invocation, Some(sender))

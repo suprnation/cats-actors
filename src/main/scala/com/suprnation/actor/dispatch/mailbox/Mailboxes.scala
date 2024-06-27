@@ -53,7 +53,7 @@ object Mailboxes {
       override def dequeue: F[EnvelopeWithDeferred[F, Request]] =
         Concurrent[F].never[EnvelopeWithDeferred[F, Request]]
 
-      @inline override  val deadLockCheck: F[Boolean] = false.pure[F]
+      @inline override val deadLockCheck: F[Boolean] = false.pure[F]
 
       @inline override val hasMessage: F[Boolean] = false.pure[F]
 

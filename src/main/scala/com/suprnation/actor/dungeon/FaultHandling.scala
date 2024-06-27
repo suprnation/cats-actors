@@ -253,7 +253,9 @@ trait FaultHandling[F[+_], Request, Response] {
             case _                                               => setFailed(self).as(Set.empty)
           }
           _ <- suspendChildren(exceptFor = skip ++ childrenNotToSuspend)
-          _ <- parent.internalActorRef.flatMap(internal => internal.sendSystemMessage(Envelope.system(Failed(self, t, uid))))
+          _ <- parent.internalActorRef.flatMap(internal =>
+            internal.sendSystemMessage(Envelope.system(Failed(self, t, uid)))
+          )
         } yield ()
       )
       .recoverWith { case NonFatal(e) =>

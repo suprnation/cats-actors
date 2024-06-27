@@ -206,7 +206,8 @@ object ChildrenContainer {
     override def stats: immutable.List[ChildRestartStats[F]] =
       if (c.isEmpty) immutable.List.empty[ChildRestartStats[F]] else toChildRestartStats(c)
 
-    override def shallDie(actor: NoSendActorRef[F]): ChildrenContainer[F] = copy(toDie = toDie + actor)
+    override def shallDie(actor: NoSendActorRef[F]): ChildrenContainer[F] =
+      copy(toDie = toDie + actor)
 
     override def reserve(name: String): ChildrenContainer[F] = reason match {
       case Termination =>

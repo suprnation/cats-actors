@@ -30,9 +30,9 @@ import java.util.UUID
 
 trait RootActorCreator[F[+_]] {
   def createRootActor[Request, Response](
-                                          props: => ReplyingActor[F, Request, Response],
-                                          name: String
-                                        )(implicit applicativeEvidence: Applicative[F]): F[ReplyingActorRef[F, Request, Response]] =
+      props: => ReplyingActor[F, Request, Response],
+      name: String
+  )(implicit applicativeEvidence: Applicative[F]): F[ReplyingActorRef[F, Request, Response]] =
     createRootActor[Request, Response](props.pure[F], name)
 
   def createRootActor[Request, Response](
@@ -95,7 +95,6 @@ object ActorSystem {
 
               override def scheduler: Scheduler[F] = Scheduler[F](schedulerCount)
 
-
               override val eventStream: Queue[F, Any] = _eventStream
 
               override def deadLetters: F[ActorRef[F, Any]] = deadLetterActorRef.get.flatMap {
@@ -130,9 +129,9 @@ object ActorSystem {
                 terminated.get
 
               def createRootActor[Request, Response](
-                                                      props: F[ReplyingActor[F, Request, Response]],
-                                                      name: String
-                                                    ): F[ReplyingActorRef[F, Request, Response]] = for {
+                  props: F[ReplyingActor[F, Request, Response]],
+                  name: String
+              ): F[ReplyingActorRef[F, Request, Response]] = for {
                 // For root actors we do not want to supervise.
                 localActorRef <-
                   InternalActorRef.apply[F, Request, Response](
@@ -148,7 +147,6 @@ object ActorSystem {
                 _ <- localActorRef.start
               } yield localActorRef
             }
-
           )
       )
 

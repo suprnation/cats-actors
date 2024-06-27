@@ -48,9 +48,12 @@ trait FSMStateSyntax {
       stateName: S,
       stateTimeout: Timeout[Request] = Option.empty[(FiniteDuration, Request)]
   )(
-      stateFunction: PartialFunction[(FSM.Event[D, Request], StateManager[F, S, D, Request, Response]), F[
-        State[S, D, Request, Response]
-      ]]
+      stateFunction: PartialFunction[
+        (FSM.Event[D, Request], StateManager[F, S, D, Request, Response]),
+        F[
+          State[S, D, Request, Response]
+        ]
+      ]
   ): FSMBuilder[F, S, D, Request, Response] =
     FSMBuilder[F, S, D, Request, Response]().when(stateName, stateTimeout)(stateFunction)
 
@@ -59,10 +62,15 @@ trait FSMStateSyntax {
       stateTimeout: FiniteDuration,
       onTimeout: Request
   )(
-      stateFunction: PartialFunction[(FSM.Event[D, Request], StateManager[F, S, D, Request, Response]), F[
-        State[S, D, Request, Response]
-      ]]
+      stateFunction: PartialFunction[
+        (FSM.Event[D, Request], StateManager[F, S, D, Request, Response]),
+        F[
+          State[S, D, Request, Response]
+        ]
+      ]
   ): FSMBuilder[F, S, D, Request, Response] =
-    FSMBuilder[F, S, D, Request, Response]().when(stateName, Some(stateTimeout -> onTimeout))(stateFunction)
+    FSMBuilder[F, S, D, Request, Response]().when(stateName, Some(stateTimeout -> onTimeout))(
+      stateFunction
+    )
 
 }
