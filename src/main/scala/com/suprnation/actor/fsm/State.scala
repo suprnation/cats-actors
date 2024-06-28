@@ -16,45 +16,49 @@
 
 package com.suprnation.actor.fsm
 
-import com.suprnation.actor.ActorRef
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor.fsm.State.SilentState
+import com.suprnation.typelevel.fsm.syntax.Timeout
 
 import scala.concurrent.duration.FiniteDuration
 
 object State {
-  def apply[S, D](
+  def apply[S, D, Request, Response](
       stateName: S,
       stateData: D,
-      timeout: Option[FiniteDuration] = None,
+      timeout: Timeout[Request] = None,
       stopReason: Option[Reason] = None,
-      replies: List[Any] = Nil
-  ): State[S, D] =
+      replies: List[Response] = Nil
+  ): State[S, D, Request, Response] =
     new State(stateName, stateData, timeout, stopReason, replies)
 
-  def unapply[S, D](
-      state: State[S, D]
-  ): Option[(S, D, Option[FiniteDuration], Option[Reason], List[Any])] =
+  def unapply[S, D, Request, Response](
+      state: State[S, D, Request, Response]
+  ): Option[(S, D, Timeout[Request], Option[Reason], List[Any])] =
     Some((state.stateName, state.stateData, state.timeout, state.stopReason, state.replies))
 
-  case class StateTimeoutWithSender[F[+_]](original: Option[ActorRef[F]])
+  case class StateTimeoutWithSender[F[+_], Request](
+      original: Option[NoSendActorRef[F]],
+      msg: Request
+  )
 
-  class SilentState[S, D](
+  class SilentState[S, D, Request, Response](
       stateName: S,
       stateData: D,
-      timeout: Option[FiniteDuration],
+      timeout: Timeout[Request],
       stopReason: Option[Reason],
-      replies: List[Any]
-  ) extends State[S, D](stateName, stateData, timeout, stopReason, replies) {
+      replies: List[Response]
+  ) extends State[S, D, Request, Response](stateName, stateData, timeout, stopReason, replies) {
 
     override def notifies: Boolean = false
 
     override def copy(
         stateName: S = stateName,
         stateData: D = stateData,
-        timeout: Option[FiniteDuration] = timeout,
+        timeout: Timeout[Request] = timeout,
         stopReason: Option[Reason] = stopReason,
-        replies: List[Any] = replies
-    ): State[S, D] =
+        replies: List[Response] = replies
+    ): State[S, D, Request, Response] =
       new SilentState(stateName, stateData, timeout, stopReason, replies)
 
   }
@@ -62,39 +66,39 @@ object State {
   case object StateTimeout
 }
 
-class State[S, D](
+class State[S, D, Request, Response](
     val stateName: S,
     val stateData: D,
-    val timeout: Option[FiniteDuration] = None,
+    val timeout: Timeout[Request] = None,
     val stopReason: Option[Reason] = None,
-    val replies: List[Any] = Nil
+    val replies: List[Response] = Nil
 ) {
 
   def notifies: Boolean = true
 
-  def replying(replyValue: Any): State[S, D] =
+  def replying(replyValue: Response): State[S, D, Request, Response] =
     copy(replies = replyValue :: replies)
 
-  def using(nextStateData: D): State[S, D] =
+  def using(nextStateData: D): State[S, D, Request, Response] =
     copy(stateData = nextStateData)
 
-  def withStopReason(reason: Reason): State[S, D] =
+  def withStopReason(reason: Reason): State[S, D, Request, Response] =
     copy(stopReason = Some(reason))
 
-  def forMax(duration: Option[FiniteDuration]): State[S, D] =
+  def forMax(duration: Option[(FiniteDuration, Request)]): State[S, D, Request, Response] =
     copy(timeout = duration)
 
   // defined here to be able to override it in SilentState
   def copy(
       stateName: S = stateName,
       stateData: D = stateData,
-      timeout: Option[FiniteDuration] = timeout,
+      timeout: Timeout[Request] = timeout,
       stopReason: Option[Reason] = stopReason,
-      replies: List[Any] = replies
-  ): State[S, D] =
+      replies: List[Response] = replies
+  ): State[S, D, Request, Response] =
     new State(stateName, stateData, timeout, stopReason, replies)
 
-  def withNotification(notifies: Boolean): State[S, D] =
+  def withNotification(notifies: Boolean): State[S, D, Request, Response] =
     if (notifies)
       State(stateName, stateData, timeout, stopReason, replies)
     else

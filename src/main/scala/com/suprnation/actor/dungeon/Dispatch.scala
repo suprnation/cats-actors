@@ -20,7 +20,6 @@ import cats.effect.kernel.Concurrent
 import cats.effect.std.Console
 import cats.effect.{Async, Deferred, Temporal}
 import cats.syntax.all._
-import com.suprnation.actor.Actor.Message
 import com.suprnation.actor.Exception.Catcher
 import com.suprnation.actor.dispatch._
 import com.suprnation.actor.dispatch.mailbox.{Mailbox, Mailboxes}
@@ -28,30 +27,35 @@ import com.suprnation.actor.dungeon.Dispatch.DispatchContext
 import com.suprnation.actor.engine.ActorCell
 import com.suprnation.actor.event.Error
 import com.suprnation.actor.{Envelope, EnvelopeWithDeferred, SystemMessageEnvelope}
+import com.suprnation.typelevel.actors.implicits._
 
 import scala.util.control.{NoStackTrace, NonFatal}
 
 object Dispatch {
 
-  def createContext[F[+_]: Async: Temporal: Console](name: String): F[DispatchContext[F]] =
-    Dispatch.createMailbox[F](name).map(DispatchContext(_))
-
-  private def createMailbox[F[+_]: Async: Temporal: Console](
+  def createContext[F[+_]: Async: Temporal: Console, Request, Response](
       name: String
-  ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Message]]] =
-    Mailboxes.createMailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Message]](name)
+  ): F[DispatchContext[F, Request, Response]] =
+    Dispatch.createMailbox[F, Request](name).map(DispatchContext(_))
 
-  case class DispatchContext[F[+_]: Async: Temporal: Console](
-      var mailbox: Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Message]]
+  private def createMailbox[F[+_]: Async: Temporal: Console, Request](
+      name: String
+  ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]] =
+    Mailboxes
+      .createMailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]](name)
+
+  case class DispatchContext[F[+_]: Async: Temporal: Console, Request, Response](
+      var mailbox: Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]
   ) {
 
     def swapMailbox(
-        _mailbox: Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Message]]
-    ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Message]]] =
+        _mailbox: Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]
+    ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]] =
       Temporal[F]
         .delay {
           val previousMailbox
-              : Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Message]] = mailbox
+              : Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]] =
+            mailbox
           mailbox = _mailbox
           previousMailbox
         }
@@ -59,12 +63,12 @@ object Dispatch {
   }
 }
 
-trait Dispatch[F[+_]] {
-  actorCell: ActorCell[F] =>
+trait Dispatch[F[+_], Request, Response] {
+  actorCell: ActorCell[F, Request, Response] =>
 
   implicit val asyncF: Async[F]
   implicit val concurrentF: Concurrent[F]
-  implicit val dispatchContext: DispatchContext[F]
+  implicit val dispatchContext: DispatchContext[F, Any, Any]
   implicit val consoleF: Console[F]
 
   /** Initialise the cell, i.e. setup the mailboxes and supervision. The UID must be reasonably different from the previous UID of a possible ctor with the same path.
@@ -74,7 +78,9 @@ trait Dispatch[F[+_]] {
       _ <- create(None)
       _ <-
         if (sendSupervise) {
-          parent.sendSystemMessage(Envelope.system(SystemMessage.Supervise(self)))
+          parent.internalActorRef.flatMap(internal =>
+            internal.sendSystemMessage(Envelope.system(SystemMessage.Supervise(self)))
+          )
         } else concurrentF.unit
     } yield ()
 
@@ -106,18 +112,20 @@ trait Dispatch[F[+_]] {
     // Here we need to see if the system is terminated... if it is we need to send all messages to the deadletter.
     dispatchContext.mailbox.systemEnqueue(invocation).recoverWith(handleException)
 
-  def ?[A](fa: Message): F[A] =
-    // TODO: this should also be under the recoverWith - check what we can do.
+  def ?(fa: Request): F[Response] =
     for {
-      deferred <- Deferred[F, A]
+      deferred <- Deferred[F, Any]
       _ <- sendMessage(
-        Envelope[F, Message](fa, self),
-        Option(deferred).asInstanceOf[Option[Deferred[F, Any]]]
+        Envelope(fa, self),
+        Option(deferred)
       )
       result <- deferred.get
-    } yield result
+    } yield result.asInstanceOf[Response]
 
-  override def sendMessage(msg: Envelope[F, Message], deferred: Option[Deferred[F, Any]]): F[Unit] =
+  override def sendMessage(
+      msg: Envelope[F, Any],
+      deferred: Option[Deferred[F, Any]]
+  ): F[Unit] =
     // Here we need to see if the system is terminated... if it is we send all messages to the dead letter
     dispatchContext.mailbox
       .enqueue(EnvelopeWithDeferred(msg, deferred))

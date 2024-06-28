@@ -2,18 +2,12 @@ package com.suprnation.actor.supervision
 
 import cats.effect.{IO, Ref}
 import cats.implicits._
-import com.suprnation.actor.Actor.Receive
+import com.suprnation.actor.Actor.{Actor, Receive}
+import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.SupervisorStrategy.{Escalate, Restart, Resume, Stop}
 import com.suprnation.actor.debug.TrackingActor
-import com.suprnation.actor.props.PropsF
-import com.suprnation.actor.{
-  Actor,
-  ActorRef,
-  ActorSystem,
-  AllForOneStrategy,
-  OneForOneStrategy,
-  SupervisionStrategy
-}
+import com.suprnation.actor.supervision.Supervision.Messages.ActorMessages
+import com.suprnation.actor.{ActorSystem, AllForOneStrategy, OneForOneStrategy, SupervisionStrategy}
 import com.suprnation.typelevel.actors.syntax._
 
 import scala.collection.immutable.HashMap
@@ -29,9 +23,9 @@ object Supervision {
   case class ExampleActor(
       override val supervisorStrategy: SupervisionStrategy[IO],
       _cache: Ref[IO, Map[String, TrackingActor.ActorRefs[IO]]],
-      childrenActors: Ref[IO, List[ActorRef[IO]]],
+      childrenActors: Ref[IO, List[ActorRef[IO, ActorMessages]]],
       maxChildren: Int
-  ) extends Actor[IO] {
+  ) extends Actor[IO, ActorMessages] {
 
     import Messages._
 
@@ -40,17 +34,13 @@ object Supervision {
     override def preStart: IO[Unit] =
       List
         .tabulate(maxChildren)(index =>
-          context.actorOf(
-            PropsF(
-              ReplyToMeWorker().track(s"reply-to-actor-$index")
-            ),
-            s"reply-to-actor-$index"
-          )
+          context
+            .actorOf(ReplyToMeWorker().track(s"reply-to-actor-$index"), s"reply-to-actor-$index")
         )
         .sequence >>=
         (children => childrenActors.set(children))
 
-    override def receive: Receive[IO] = {
+    override def receive: Receive[IO, ActorMessages] = {
       case Dangerous(r, crash, index) =>
         childrenActors.get.map(_.apply(index)) >>= (_ ! JobRequest(r, self, crash))
 
@@ -58,26 +48,34 @@ object Supervision {
     }
   }
 
-  case class ReplyToMeWorker() extends Actor[IO] {
-    override def receive: Receive[IO] = {
+  case class ReplyToMeWorker() extends Actor[IO, ActorMessages] {
+    override def receive: Receive[IO, ActorMessages] = {
       // After 1 second send the result of the intense computation
       case Messages.JobRequest(r, actor, shouldCrash) =>
         shouldCrash.fold(
-          sender.fold(IO.unit)(s => actor ! Messages.JobReply(r, s))
+          sender.fold(IO.unit)(s => (actor ! Messages.JobReply(r, s)).void)
         )(IO.raiseError)
     }
   }
 
   object Messages {
-    case class Shutdown()
+    trait ActorMessages
 
-    case class Request(echoMessage: String)
+    case class Shutdown() extends ActorMessages
+
+    case class Request(echoMessage: String) extends ActorMessages
 
     case class Dangerous(echoMessage: String, reason: Option[Throwable], index: Int = 0)
+        extends ActorMessages
 
-    case class JobRequest(echoMessage: String, sender: ActorRef[IO], reason: Option[Throwable])
+    case class JobRequest(
+        echoMessage: String,
+        sender: ActorRef[IO, ActorMessages],
+        reason: Option[Throwable]
+    ) extends ActorMessages
 
-    case class JobReply(echoMessage: String, originalSender: ActorRef[IO])
+    case class JobReply(echoMessage: String, originalSender: NoSendActorRef[IO])
+        extends ActorMessages
   }
 
   object ExampleActor {
@@ -99,18 +97,16 @@ object Supervision {
 
     def apply(maxChildren: Int, supervisionStrategy: SupervisionStrategy[IO])(implicit
         system: ActorSystem[IO]
-    ): IO[ActorRef[IO]] =
+    ): IO[ActorRef[IO, ActorMessages]] =
       (
         Ref[IO].of[Map[String, TrackingActor.ActorRefs[IO]]](
           HashMap.empty[String, TrackingActor.ActorRefs[IO]]
         ),
-        Ref[IO].of(List.empty[ActorRef[IO]])
+        Ref[IO].of(List.empty[ActorRef[IO, ActorMessages]])
       ).flatMapN { (cache, childrenRefs) =>
         system.actorOf(
-          PropsF(
-            ExampleActor(supervisionStrategy, cache, childrenRefs, maxChildren).track("example")(
-              cache
-            )
+          ExampleActor(supervisionStrategy, cache, childrenRefs, maxChildren).track("example")(
+            cache
           ),
           "example"
         )

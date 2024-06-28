@@ -16,7 +16,7 @@
 
 package com.suprnation.actor.utils
 
-import com.suprnation.actor.{Actor, ActorContext, ActorRef}
+import com.suprnation.actor.{ActorContext, ReplyingActor, ReplyingActorRef}
 
 import java.lang.reflect.Field
 import scala.annotation.tailrec
@@ -25,7 +25,10 @@ object Unsafe {
 
   /** Set the actor context reflectively, we do this to avoid a ref and have a double map on the object Note that the actor is update via the ref and we are guaranteed that it will be only accessed once due to the take.
     */
-  def setActorContext[F[+_]](actor: Actor[F], context: ActorContext[F]): Actor[F] =
+  def setActorContext[F[+_], Request, Response](
+      actor: ReplyingActor[F, Request, Response],
+      context: ActorContext[F, Request, Response]
+  ): ReplyingActor[F, Request, Response] =
     getDeclaredField(actor.getClass, "context").fold {
       throw new Error(s"Class: [${actor.getClass}] does not inherit from Actor.  ")
     } { contextField =>
@@ -41,7 +44,10 @@ object Unsafe {
     * @param self
     *   the self address
     */
-  def setActorSelf[F[+_]](actor: Actor[F], self: ActorRef[F]): Actor[F] =
+  def setActorSelf[F[+_], Request, Response](
+      actor: ReplyingActor[F, Request, Response],
+      self: ReplyingActorRef[F, Request, Response]
+  ): ReplyingActor[F, Request, Response] =
     getDeclaredField(actor.getClass, "self").fold(
       throw new Error(s"Class: [${actor.getClass}] does not inherit from Actor.  ")
     ) { field =>
@@ -55,7 +61,7 @@ object Unsafe {
     clazz.getSuperclass.getDeclaredFields.toList.find(field => field.getName == name) match {
       case None =>
         // check the super class
-        if (clazz != classOf[Actor[F]] && clazz != classOf[AnyRef]) {
+        if (clazz != classOf[ReplyingActor[F, Nothing, Any]] && clazz != classOf[AnyRef]) {
           // We are not at the most topmost field let's move up!
           getDeclaredField(clazz.getSuperclass, name)
         } else {

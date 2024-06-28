@@ -3,9 +3,9 @@ package com.suprnation.actor.wait
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
 import cats.implicits._
-import com.suprnation.actor.props.Props
-import com.suprnation.actor.{Actor, ActorRef, ActorSystem}
-import com.suprnation.typelevel.actors.implicits._
+import com.suprnation.actor.Actor.{Actor, Receive}
+import com.suprnation.actor.ActorSystem
+import com.suprnation.actor.wait.WaitSpecSuite.{slowActor, slowActorWithForward}
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -15,42 +15,40 @@ import scala.language.postfixOps
 
 object WaitSpecSuite {
 
-  case class SlowActor(ref: Ref[IO, Boolean]) extends Actor[IO] {
-    override def receive: Actor.Receive[IO] = { case msg =>
+  def slowActor(ref: Ref[IO, Boolean]): Actor[IO, String] = new Actor[IO, String] {
+    override def receive: Receive[IO, String] = { case msg =>
       IO.sleep(10 millisecond) >> ref.set(true).as(msg)
     }
   }
 
-  case class SlowActorWithForward(ref: Ref[IO, Boolean], levels: Int = 1) extends Actor[IO] {
-    val childRef: Ref[IO, Option[ActorRef[IO]]] = Ref.unsafe[IO, Option[ActorRef[IO]]](None)
+  def slowActorWithForward(ref: Ref[IO, Boolean], levels: Int = 1): Actor[IO, String] =
+    new Actor[IO, String] {
+      override def receive: Receive[IO, String] =
+        if (levels == 1) {
+          case "slow" =>
+            IO.sleep(10 millisecond) >> ref.updateAndGet(_ => true)
+          case "schedule" =>
+            IO.sleep(10 millisecond) >> ref.updateAndGet(_ => true)
+        }
+        else {
+          case "slow" =>
+            for {
+              slowActor <- context.actorOfWithDebug(
+                slowActorWithForward(ref, levels - 1),
+                s"${context.self.path.name.split("-").head}-${levels - 1}"
+              )
+              _ <- slowActor ! "slow"
+            } yield ()
+          case "schedule" =>
+            context
+              .actorOfWithDebug(
+                slowActorWithForward(ref, levels - 1),
+                s"${context.self.path.name.split("-").head}-${levels - 1}"
+              )
+              .flatMap(_ ! "schedule")
 
-    override def receive: Actor.Receive[IO] =
-      if (levels == 1) {
-        case "slow" =>
-          IO.sleep(10 millisecond) >> ref.set(true)
-        case "schedule" =>
-          IO.sleep(10 millisecond) >> ref.set(true)
-      }
-      else {
-        case "slow" =>
-          for {
-            slowActor <- context.actorOfWithDebug(
-              Props[IO](SlowActorWithForward(ref, levels - 1)),
-              s"${self.path.name.split("-").head}-${levels - 1}"
-            )
-            _ <- slowActor ! "slow"
-          } yield ()
-        case "schedule" =>
-          for {
-            slowActor <- context.actorOfWithDebug(
-              Props[IO](SlowActorWithForward(ref, levels - 1)),
-              s"${self.path.name.split("-").head}-${levels - 1}"
-            )
-            _ <- slowActor ! "schedule"
-          } yield ()
-
-      }
-  }
+        }
+    }
 }
 
 class WaitSpecSuite extends AsyncFlatSpec with Matchers {
@@ -59,7 +57,7 @@ class WaitSpecSuite extends AsyncFlatSpec with Matchers {
     (for {
       system <- ActorSystem[IO]("Waiting Game", (_: Any) => IO.unit).allocated.map(_._1)
       ref <- Ref[IO].of(false)
-      input <- system.actorOf(Props[IO](WaitSpecSuite.SlowActor(ref)), "waiting")
+      input <- system.actorOf[String](slowActor(ref), "waiting")
       _ <- (input ! "slow").start
       _ <- input.waitForIdle
       result <- ref.get
@@ -73,7 +71,7 @@ class WaitSpecSuite extends AsyncFlatSpec with Matchers {
     (for {
       system <- ActorSystem[IO]("Waiting Game", (_: Any) => IO.unit).allocated.map(_._1)
       ref <- Ref[IO].of(false)
-      input <- system.actorOf(Props[IO](WaitSpecSuite.SlowActor(ref)), "waiting")
+      input <- system.actorOf[String](slowActor(ref), "waiting")
       _ <- (input ! "schedule").start
       _ <- input.waitForIdle
       result <- ref.get
@@ -86,7 +84,10 @@ class WaitSpecSuite extends AsyncFlatSpec with Matchers {
     (for {
       system <- ActorSystem[IO]("Waiting Game", (_: Any) => IO.unit).allocated.map(_._1)
       ref <- Ref[IO].of(false)
-      input <- system.actorOfWithDebug(Props[IO](WaitSpecSuite.SlowActor(ref)), "waiting")
+      input <- system.actorOfWithDebug(
+        slowActor(ref),
+        "waiting"
+      )
       _ <- (input ! "slow").start
       _ <- input.waitForIdle
       result <- ref.get
@@ -99,7 +100,10 @@ class WaitSpecSuite extends AsyncFlatSpec with Matchers {
     (for {
       system <- ActorSystem[IO]("Waiting Game", (_: Any) => IO.unit).allocated.map(_._1)
       ref <- Ref[IO].of(false)
-      input <- system.actorOfWithDebug(Props[IO](WaitSpecSuite.SlowActor(ref)), "waiting")
+      input <- system.actorOfWithDebug(
+        slowActor(ref),
+        "waiting"
+      )
       _ <- (input ! "schedule").start
       _ <- input.waitForIdle
       result <- ref.get
@@ -112,7 +116,10 @@ class WaitSpecSuite extends AsyncFlatSpec with Matchers {
     (for {
       system <- ActorSystem[IO]("Waiting Game", (_: Any) => IO.unit).allocated.map(_._1)
       ref <- Ref[IO].of(false)
-      input <- system.actorOfWithDebug(Props[IO](WaitSpecSuite.SlowActor(ref)), "waiting")
+      input <- system.actorOfWithDebug(
+        slowActor(ref),
+        "waiting"
+      )
       _ <- input ! "slow"
       // Print all children so we are sure!
       names <- system.allChildren >>= (children => children.traverse(_.path.name.pure[IO]))
@@ -129,7 +136,7 @@ class WaitSpecSuite extends AsyncFlatSpec with Matchers {
       system <- ActorSystem[IO]("Waiting Game", (_: Any) => IO.unit).allocated.map(_._1)
       ref <- Ref[IO].of(false)
       input <- system.actorOfWithDebug(
-        Props[IO](WaitSpecSuite.SlowActorWithForward(ref, 3)),
+        slowActorWithForward(ref, 3),
         "waiting-3"
       )
       _ <- input ! "slow" // assert that at least the first actor received it in his queue.

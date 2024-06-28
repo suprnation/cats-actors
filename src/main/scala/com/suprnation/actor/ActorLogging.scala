@@ -16,12 +16,16 @@
 
 package com.suprnation.actor
 
+import com.suprnation.actor.Actor.Actor
 import com.suprnation.actor.event.Debug
 
-trait ActorLogging[F[+_]] {
-  this: Actor[F] =>
+trait ActorLogging[F[+_], Request] {
+  this: Actor[F, Request] =>
   def log(msg: Any): F[Unit] = context.system.eventStream.offer(
-    Debug(s"[Path: ${context.self.path}] [Name:${context.self.path.name}]", classOf[Actor[F]], msg)
+    Debug(
+      s"[Path: ${context.self.path}] [Name:${context.self.path.name}]",
+      classOf[ReplyingActor[F, Nothing, Any]],
+      msg
+    )
   )
-
 }

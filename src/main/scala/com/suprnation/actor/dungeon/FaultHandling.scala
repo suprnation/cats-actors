@@ -19,6 +19,7 @@ package com.suprnation.actor.dungeon
 import cats.effect.syntax.all._
 import cats.effect.{Concurrent, Ref}
 import cats.syntax.all._
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor._
 import com.suprnation.actor.dispatch.SystemMessage.Failed
 import com.suprnation.actor.dungeon.ChildrenContainer.TerminatedChildrenContainer
@@ -35,7 +36,7 @@ object FaultHandling {
 
   sealed trait FailedInfo
 
-  final case class FailedRef[F[+_]](ref: ActorRef[F]) extends FailedInfo
+  final case class FailedRef[F[+_]](ref: NoSendActorRef[F]) extends FailedInfo
 
   /*
    * have we told our supervisor that we Failed() and have not yet heard back?
@@ -50,8 +51,8 @@ object FaultHandling {
   case object FailedFatally extends FailedInfo
 }
 
-trait FaultHandling[F[+_]] {
-  this: ActorCell[F] =>
+trait FaultHandling[F[+_], Request, Response] {
+  this: ActorCell[F, Request, Response] =>
 
   import FaultHandling._
 
@@ -119,12 +120,12 @@ trait FaultHandling[F[+_]] {
 
   //  _failed eq FailedFatally
 
-  protected def suspendChildren(exceptFor: Set[ActorRef[F]] = Set.empty): F[Unit] =
+  protected def suspendChildren(exceptFor: Set[NoSendActorRef[F]] = Set.empty): F[Unit] =
     for {
       children <- childrenRefs.get
       _ <- children.stats.parTraverse_ {
         case ChildRestartStats(child, _, _) if !(exceptFor contains child) =>
-          child.asInstanceOf[InternalActorRef[F]].suspend(None)
+          child.asInstanceOf[InternalActorRef[F, Nothing, Any]].suspend(None)
         case _ => concurrentF.unit
       }
     } yield ()
@@ -227,14 +228,14 @@ trait FaultHandling[F[+_]] {
 
   } yield ()
 
-  protected def setFailed(perpetrator: ActorRef[F]): F[Unit] =
+  protected def setFailed(perpetrator: NoSendActorRef[F]): F[Unit] =
     faultHandlingContext.failed.update {
       case FailedFatally => FailedFatally
       case _             => FailedRef(perpetrator)
     }
 
   def handleInvokeFailure(
-      childrenNotToSuspend: immutable.Iterable[ActorRef[F]],
+      childrenNotToSuspend: immutable.Iterable[NoSendActorRef[F]],
       t: Throwable
   ): F[Unit] =
     isFailed
@@ -252,7 +253,9 @@ trait FaultHandling[F[+_]] {
             case _                                               => setFailed(self).as(Set.empty)
           }
           _ <- suspendChildren(exceptFor = skip ++ childrenNotToSuspend)
-          _ <- parent.sendSystemMessage(Envelope.system(Failed(self, t, uid)))
+          _ <- parent.internalActorRef.flatMap(internal =>
+            internal.sendSystemMessage(Envelope.system(Failed(self, t, uid)))
+          )
         } yield ()
       )
       .recoverWith { case NonFatal(e) =>
@@ -282,9 +285,9 @@ trait FaultHandling[F[+_]] {
       case _                     => false
     }
 
-  protected def perpetrator: F[Option[ActorRef[F]]] =
+  protected def perpetrator: F[Option[NoSendActorRef[F]]] =
     faultHandlingContext.failed.get.map {
-      case FailedRef(ref) => Some(ref.asInstanceOf[ActorRef[F]])
+      case FailedRef(ref) => Some(ref.asInstanceOf[NoSendActorRef[F]])
       case _              => None
     }
 
@@ -313,7 +316,7 @@ trait FaultHandling[F[+_]] {
           )
         _ <- survivors.parTraverse_(child =>
           child
-            .asInstanceOf[InternalActorRef[F]]
+            .asInstanceOf[InternalActorRef[F, Nothing, Any]]
             .restart(cause)
             .recoverWith { case NonFatal(e) =>
               publish(Error(e, self.path.toString, _, "restarting " + child))
@@ -343,7 +346,7 @@ trait FaultHandling[F[+_]] {
             handled <- a.supervisorStrategy.handleFailure(
               a.context,
               f.child,
-              f.cause.asInstanceOf[Throwable],
+              f.cause,
               stats,
               allChildStatistics
             )
@@ -369,7 +372,7 @@ trait FaultHandling[F[+_]] {
       }
     } yield ()
 
-  final protected def handleChildTerminated(child: ActorRef[F]): F[Unit] =
+  final protected def handleChildTerminated(child: NoSendActorRef[F]): F[Unit] =
     removeChildAndGetStateChange(child) >>= (status =>
       for {
         maybeActor <- actorOp

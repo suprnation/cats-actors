@@ -3,17 +3,12 @@ package com.suprnation.actor.supervision
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
 import cats.implicits._
-import com.suprnation.actor.Actor.Receive
+import com.suprnation.actor.Actor.{Actor, Receive}
+import com.suprnation.actor.ActorRef.ActorRef
 import com.suprnation.actor.SupervisorStrategy.Escalate
 import com.suprnation.actor._
 import com.suprnation.actor.debug.TrackingActor
-import com.suprnation.actor.props.{Props, PropsF}
-import com.suprnation.actor.supervision.SupervisionEscalation.{
-  ChildActor,
-  GrandParent,
-  ParentActor,
-  ThrowingTantrumActor
-}
+import com.suprnation.actor.supervision.SupervisionEscalation.{ChildActor, GrandParent, ParentActor, ThrowingTantrumActor}
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -24,8 +19,8 @@ import scala.language.postfixOps
 
 object SupervisionEscalation {
 
-  case class GrandParent(numberOfChildren: Int) extends Actor[IO] {
-    val children: Ref[IO, List[ActorRef[IO]]] = Ref.unsafe(List.empty)
+  case class GrandParent(numberOfChildren: Int) extends Actor[IO, String] {
+    val children: Ref[IO, List[ReplyingActorRef[IO, String, Any]]] = Ref.unsafe(List.empty)
 
     override def supervisorStrategy: SupervisionStrategy[IO] =
       OneForOneStrategy[IO](maxNrOfRetries = 3, withinTimeRange = 1 minute) { case _ =>
@@ -38,19 +33,19 @@ object SupervisionEscalation {
     override def preStart: IO[Unit] =
       Range
         .inclusive(1, numberOfChildren)
-        .map(index => context.actorOf(Props(ParentActor(numberOfChildren)), s"parent-$index"))
+        .map(index => context.actorOf[String](ParentActor(numberOfChildren), s"parent-$index"))
         .toList
         .sequence
         .flatMap(children.set)
 
-    override def receive: Receive[IO] = { case _ =>
+    override def receive: Receive[IO, String] = { case _ =>
       children.get.flatMap(_.head ! "die")
     }
 
   }
 
-  case class ParentActor(numberOfChildren: Int) extends Actor[IO] {
-    val children: Ref[IO, List[ActorRef[IO]]] = Ref.unsafe(List.empty)
+  case class ParentActor(numberOfChildren: Int) extends Actor[IO, String] {
+    val children: Ref[IO, List[ActorRef[IO, String]]] = Ref.unsafe(List.empty)
 
     override def supervisorStrategy: SupervisionStrategy[IO] =
       OneForOneStrategy[IO](maxNrOfRetries = 3, withinTimeRange = 1 minute) { case _ =>
@@ -64,29 +59,29 @@ object SupervisionEscalation {
       Range
         .inclusive(1, numberOfChildren)
         .map { index =>
-          context.actorOf(Props(ThrowingTantrumActor()), s"child-$index")
+          context.actorOf[String](ThrowingTantrumActor(), s"child-$index")
         }
         .toList
         .sequence
         .flatMap(children.set)
 
-    override def receive: Receive[IO] = { case _ =>
+    override def receive: Receive[IO, String] = { case _ =>
       children.get.flatMap(_.head ! "die")
     }
 
   }
 
-  case class ChildActor() extends Actor[IO] {
-    override def receive: Receive[IO] = { case msg =>
+  case class ChildActor() extends Actor[IO, String] {
+    override def receive: Receive[IO, String] = { case msg =>
       IO.println(s"[Actor: ${context.self.path}] Pre processing message $msg") >> IO.sleep(
         1 second
       ) >> IO.pure(msg)
     }
   }
 
-  case class ThrowingTantrumActor() extends Actor[IO] {
+  case class ThrowingTantrumActor() extends Actor[IO, String] {
 
-    override def receive: Receive[IO] = { case _ =>
+    override def receive: Receive[IO, String] = { case _ =>
       IO.raiseError(new RuntimeException("I don't want to work!"))
     }
 
@@ -120,7 +115,7 @@ class SupervisionEscalation extends AsyncFlatSpec with Matchers {
       (system, waitForSystemStop) = tuple
 
       exampleActor <- system.actorOf(
-        PropsF(ThrowingTantrumActor().track("tantrum-actor-tracker")(cache))
+        ThrowingTantrumActor().track("tantrum-actor-tracker")(cache)
       )
       // Crash the actor!
       _ <- IO.race(IO.sleep(1 second), waitForSystemStop)
@@ -153,11 +148,11 @@ class SupervisionEscalation extends AsyncFlatSpec with Matchers {
       (system, waitForSystemStop) = tuple
 
       exampleActor <- system.actorOf(
-        PropsF(ThrowingTantrumActor().track("tantrum-actor-tracker")(cache))
+        ThrowingTantrumActor().track("tantrum-actor-tracker")(cache)
       )
-      childActor1 <- system.actorOf(Props(ChildActor()), "child-actor-1")
-      childActor2 <- system.actorOf(Props(ChildActor()), "child-actor-2")
-      childActor3 <- system.actorOf(Props(ChildActor()), "child-actor-3")
+      childActor1 <- system.actorOf[String](ChildActor(), "child-actor-1")
+      childActor2 <- system.actorOf[String](ChildActor(), "child-actor-2")
+      childActor3 <- system.actorOf[String](ChildActor(), "child-actor-3")
 
       // Crash the actor!
       _ <- childActor1 ! "hello"
@@ -192,7 +187,7 @@ class SupervisionEscalation extends AsyncFlatSpec with Matchers {
 
       (system, waitForSystemStop) = tuple
 
-      grandParent <- system.actorOf(PropsF(ParentActor(5).track("tantrum-actor-tracker")(cache)))
+      grandParent <- system.actorOf(ParentActor(5).track("tantrum-actor-tracker")(cache))
       _ <- IO.race(IO.sleep(2 second), waitForSystemStop)
       _ <- grandParent ! "die nannu"
       _ <- waitForSystemStop
@@ -221,7 +216,7 @@ class SupervisionEscalation extends AsyncFlatSpec with Matchers {
 
       (system, waitForSystemStop) = tuple
 
-      grandParent <- system.actorOf(Props(GrandParent(5)), "grand-parent")
+      grandParent <- system.actorOf[String](GrandParent(5), "grand-parent")
       _ <- IO.race(IO.sleep(2 second), waitForSystemStop)
       _ <- grandParent ! "die nannu"
       _ <- waitForSystemStop

@@ -3,9 +3,6 @@ package com.suprnation.samples.logic
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
 import com.suprnation.actor._
-import com.suprnation.actor.props.Props
-import com.suprnation.samples.logic.Logic._
-import com.suprnation.typelevel.actors.implicits._
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -18,13 +15,13 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
   "Wire" should "return value" in {
     (for {
       actorSystem <- ActorSystem[IO]("Logic Circuits", (_: Any) => IO.unit).allocated.map(_._1)
-      input <- actorSystem.actorOf(Props[IO](Wire(false)), "in0")
-      probe <- actorSystem.actorOf(Props[IO](Probe(input)), "probe0")
+      input <- actorSystem.actorOf(Wire(false), "in0")
+      probe <- actorSystem.actorOf(Probe(input), "probe0")
 
       _ <- input ! true
-      result1 <- probe ? [Boolean] GetValue
+      result1 <- probe.narrowResponse[Boolean] ? GetValue
       _ <- input ! false
-      result2 <- probe ? [Boolean] GetValue
+      result2 <- probe.narrowResponse[Boolean] ? GetValue
     } yield (result1, result2)).unsafeToFuture().map { case (result1, result2) =>
       result1 should be(true)
       result2 should be(false)
@@ -38,9 +35,9 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
         "Logic Circuits",
         (event: Any) => debugMessage.set(Some(event.toString))
       ).allocated.map(_._1)
-      input <- system.actorOfWithDebug(Props[IO](Wire(false)), "in0")
+      input <- system.actorOfWithDebug(Wire(false), "in0")
       _ <- input ! true
-      result <- input ? [Boolean] GetValue
+      result <- input.narrowResponse[Boolean] ? GetValue
       _ <- system.waitForIdle()
       debugMessage <- debugMessage.get
     } yield (result, debugMessage)).unsafeToFuture().map { case (result, debugMessage) =>
@@ -48,7 +45,7 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       debugMessage should not be None
       debugMessage should be(
         Some(
-          "Debug([Path: kukku://logic-circuits@localhost/user/debug-in0] [Name:debug-in0],class com.suprnation.actor.Actor,~~ redirect ~~>: [Name: in0] [Path: kukku://logic-circuits@localhost/user/in0]] GetValue)"
+          "Debug([Path: kukku://logic-circuits@localhost/user/debug-in0] [Name:debug-in0],class com.suprnation.actor.ReplyingActor,~~ redirect ~~>: [Name: in0] [Path: kukku://logic-circuits@localhost/user/in0]] GetValue)"
         )
       )
     }
@@ -58,21 +55,21 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
     (for {
       actorSystem <- ActorSystem[IO]("Inverter Circuit", (_: Any) => IO.unit).allocated.map(_._1)
 
-      input0 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "in0")
-      output0 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "out0")
-      _ <- actorSystem.actorOfWithDebug(Props[IO](Inverter(input0, output0)), "inverter")
+      input0 <- actorSystem.actorOfWithDebug(Wire(false), "in0")
+      output0 <- actorSystem.actorOfWithDebug(Wire(false), "out0")
+      _ <- actorSystem.actorOfWithDebug(Inverter(input0, output0), "inverter")
 
       _ <- actorSystem.waitForIdle()
 
       //  Scenario 1 [Input: True] [Output: False]
       _ <- input0 ! true
       _ <- actorSystem.waitForIdle()
-      res1 <- output0 ? [Boolean] GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input: False] [Output: True]"
       _ <- input0 ! false
       _ <- actorSystem.waitForIdle()
-      res2 <- output0 ? [Boolean] GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2)).unsafeToFuture().map { case (res1, res2) =>
       res1 should be(false)
@@ -84,32 +81,32 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
     (for {
       // AND Circuit
       system <- ActorSystem[IO]("AND Logic Circuit", (_: Any) => IO.unit).allocated.map(_._1)
-      input0 <- system.actorOfWithDebug(Props[IO](Wire(false)), "in0")
-      probe0 <- system.actorOfWithDebug(Props[IO](Probe(input0)), "probeIn0")
+      input0 <- system.actorOfWithDebug(Wire(false), "in0")
+      probe0 <- system.actorOfWithDebug(Probe(input0), "probeIn0")
 
-      input1 <- system.actorOfWithDebug(Props[IO](Wire(false)), "in1")
-      probe1 <- system.actorOfWithDebug(Props[IO](Probe(input1)), "probeIn1")
+      input1 <- system.actorOfWithDebug(Wire(false), "in1")
+      probe1 <- system.actorOfWithDebug(Probe(input1), "probeIn1")
 
-      output0 <- system.actorOfWithDebug(Props[IO](Wire(false)), "output0")
-      probeOut0 <- system.actorOfWithDebug(Props[IO](Probe(output0)), "probeOut0")
+      output0 <- system.actorOfWithDebug(Wire(false), "output0")
+      probeOut0 <- system.actorOfWithDebug(Probe(output0), "probeOut0")
 
-      _ <- system.actorOf(Props[IO](And(probe0, probe1, probeOut0)), "andComponent")
+      _ <- system.actorOf(And(probe0, probe1, probeOut0), "andComponent")
       _ <- system.waitForIdle()
 
       // Scenario 1 [Input0: True] [Input1: False] [Output: False]
       _ <- input0 ! true
       _ <- system.waitForIdle()
-      res1 <- output0 ? [Boolean] GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- system.waitForIdle()
-      res2 <- output0 ? [Boolean] GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- system.waitForIdle()
-      res3 <- output0 ? [Boolean] GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3)).unsafeToFuture().map { case (res1, res2, res3) =>
       res1 should be(false)
@@ -122,26 +119,26 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
     (for {
       // Creating AND Circuit
       system <- ActorSystem[IO]("AND Logic Circuit", (_: Any) => IO.unit).allocated.map(_._1)
-      input0 <- system.actorOfWithDebug(Props[IO](Wire(false)), "in0")
-      input1 <- system.actorOfWithDebug(Props[IO](Wire(false)), "in1")
-      output0 <- system.actorOfWithDebug(Props[IO](Wire(false)), "output0")
-      _ <- system.actorOf(Props[IO](And(input0, input1, output0)), "andComponent")
+      input0 <- system.actorOfWithDebug(Wire(false), "in0")
+      input1 <- system.actorOfWithDebug(Wire(false), "in1")
+      output0 <- system.actorOfWithDebug(Wire(false), "output0")
+      _ <- system.actorOf(And(input0, input1, output0), "andComponent")
 
       _ <- system.waitForIdle()
 
       _ <- input0 ! true
       _ <- system.waitForIdle()
-      res1 <- output0 ? [Boolean] GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- system.waitForIdle()
-      res2 <- output0 ? [Boolean] GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- system.waitForIdle()
-      res3 <- output0 ? [Boolean] GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3)).unsafeToFuture().map { case (res1, res2, res3) =>
       res1 should be(false)
@@ -154,32 +151,32 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
     (for {
       // Creating OR Circuit
       actorSystem <- ActorSystem[IO]("OR Logic Circuit", (_: Any) => IO.unit).allocated.map(_._1)
-      input0 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "in0")
-      input1 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "in1")
-      output0 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "output0")
-      or <- actorSystem.actorOfWithDebug(Props[IO](Or(input0, input1, output0)), "orComponent")
+      input0 <- actorSystem.actorOfWithDebug(Wire(false), "in0")
+      input1 <- actorSystem.actorOfWithDebug(Wire(false), "in1")
+      output0 <- actorSystem.actorOfWithDebug(Wire(false), "output0")
+      or <- actorSystem.actorOfWithDebug(Or(input0, input1, output0), "orComponent")
 
       _ <- actorSystem.waitForIdle()
 
       // Scenario 1 [Input0: True] [Input1: False] [Output: True]
       _ <- input0 ! true
       _ <- actorSystem.waitForIdle()
-      res1 <- output0 ? [Boolean] GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- actorSystem.waitForIdle()
-      res2 <- output0 ? [Boolean] GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 3 [Input0: False] [Input1: True] [Output: True]
       _ <- input0 ! false
       _ <- actorSystem.waitForIdle()
-      res3 <- output0 ? [Boolean] GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 4 [Input0: False] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- actorSystem.waitForIdle()
-      res4 <- output0 ? [Boolean] GetValue
+      res4 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3, res4)).unsafeToFuture().map { case (res1, res2, res3, res4) =>
       res1 should be(true)
@@ -192,11 +189,11 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
   "An Alternate Or gate" should "behave as an Or gate (slightly slower) to the wire stimuli" in {
     (for {
       actorSystem <- ActorSystem[IO]("OR Logic Circuit", (_: Any) => IO.unit).allocated.map(_._1)
-      input0 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "in0")
-      input1 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "in1")
-      output0 <- actorSystem.actorOfWithDebug(Props[IO](Wire(false)), "output0")
+      input0 <- actorSystem.actorOfWithDebug(Wire(false), "in0")
+      input1 <- actorSystem.actorOfWithDebug(Wire(false), "in1")
+      output0 <- actorSystem.actorOfWithDebug(Wire(false), "output0")
       orAlt <- actorSystem.actorOfWithDebug(
-        Props[IO](OrAlt(input0, input1, output0)),
+        OrAlt(input0, input1, output0),
         "orAltComponent"
       )
       _ <- actorSystem.waitForIdle()
@@ -204,22 +201,22 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       // Scenario 1 [Input0: True] [Input1: False] [Output: True]
       _ <- input0 ! true
       _ <- actorSystem.waitForIdle()
-      res1 <- output0 ? [Boolean] GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- actorSystem.waitForIdle()
-      res2 <- output0 ? [Boolean] GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 3 [Input0: False] [Input1: True] [Output: True]
       _ <- input0 ! false
       _ <- actorSystem.waitForIdle()
-      res3 <- output0 ? [Boolean] GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 4 [Input0: False] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- actorSystem.waitForIdle()
-      res4 <- output0 ? [Boolean] GetValue
+      res4 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3, res4)).unsafeToFuture().map { case (res1, res2, res3, res4) =>
       res1 should be(true)
@@ -232,11 +229,11 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
   "A Half Adder" should "act like a Half Adder to the wire stimuli" in {
     (for {
       system <- ActorSystem[IO]("Half Adder", (_: Any) => IO.unit).allocated.map(_._1)
-      a <- system.actorOfWithDebug(Props[IO](Wire(false)), "a")
-      b <- system.actorOfWithDebug(Props[IO](Wire(false)), "b")
-      s <- system.actorOfWithDebug(Props[IO](Wire(false)), "s")
-      c <- system.actorOfWithDebug(Props[IO](Wire(false)), "c")
-      _ <- system.actorOfWithDebug(Props[IO](HalfAdder(a, b, s, c)), "halfAdder")
+      a <- system.actorOfWithDebug(Wire(false), "a")
+      b <- system.actorOfWithDebug(Wire(false), "b")
+      s <- system.actorOfWithDebug(Wire(false), "s")
+      c <- system.actorOfWithDebug(Wire(false), "c")
+      _ <- system.actorOfWithDebug(HalfAdder(a, b, s, c), "halfAdder")
 
       _ <- system.waitForIdle()
 
@@ -244,22 +241,22 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       // Scenario A ~~~~~~~~~~~~~~~~~~~~~~
       _ <- a ! true
       _ <- system.waitForIdle()
-      s0 <- s ? [Boolean] GetValue
-      c0 <- c ? [Boolean] GetValue
+      s0 <- s.narrowResponse[Boolean] ? GetValue
+      c0 <- c.narrowResponse[Boolean] ? GetValue
 
       // Scenario B ~~~~~~~~~~~~~~~~~~~~~~
       // Send b a 1 (s should be 1  and c should be 1)
       _ <- b ! true
       _ <- system.waitForIdle()
-      s1 <- s ? [Boolean] GetValue
-      c1 <- c ? [Boolean] GetValue
+      s1 <- s.narrowResponse[Boolean] ? GetValue
+      c1 <- c.narrowResponse[Boolean] ? GetValue
 
       // Scenario C ~~~~~~~~~~~~~~~~~~~~~~
       // Send b a 1 (s should be 1  and c should be 1)
       _ <- b ! false
       _ <- system.waitForIdle()
-      s2 <- s ? [Boolean] GetValue
-      c2 <- c ? [Boolean] GetValue
+      s2 <- s.narrowResponse[Boolean] ? GetValue
+      c2 <- c.narrowResponse[Boolean] ? GetValue
 
     } yield ((s0, c0), (s1, c1), (s2, c2))).unsafeToFuture().map {
       case ((s0, c0), (s1, c1), (s2, c2)) =>
@@ -277,12 +274,12 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
   "A Full Adder" should "behave as a Full Adder to the wire stimuli" in {
     (for {
       system <- ActorSystem[IO]("Half Adder", (_: Any) => IO.unit).allocated.map(_._1)
-      a <- system.actorOf(Props[IO](Wire(false)), "a")
-      b <- system.actorOf(Props[IO](Wire(false)), "b")
-      cin <- system.actorOf(Props[IO](Wire(false)), "cin")
-      sum <- system.actorOf(Props[IO](Wire(false)), "sum")
-      cout <- system.actorOf(Props[IO](Wire(false)), "cout")
-      _ <- system.actorOf(Props[IO](FullAdder(a, b, cin, sum, cout)), "full-adder")
+      a <- system.actorOf(Wire(false), "a")
+      b <- system.actorOf(Wire(false), "b")
+      cin <- system.actorOf(Wire(false), "cin")
+      sum <- system.actorOf(Wire(false), "sum")
+      cout <- system.actorOf(Wire(false), "cout")
+      _ <- system.actorOf(FullAdder(a, b, cin, sum, cout), "full-adder")
 
       _ <- system.waitForIdle()
 
@@ -292,8 +289,8 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
           _ <- b ! bV
           _ <- cin ! cV
           _ <- system.waitForIdle()
-          _sumV <- sum ? [Boolean] GetValue
-          _coutV <- cout ? [Boolean] GetValue
+          _sumV <- sum.narrowResponse[Boolean] ? GetValue
+          _coutV <- cout.narrowResponse[Boolean] ? GetValue
         } yield (_sumV, _coutV)
 
       s1 <- checkTruthTable(false, false, false)
@@ -345,13 +342,13 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
   "A Demux 2" should "behave as a de-multiplexer two to the wire stimuli" in {
     (for {
       system <- ActorSystem[IO]("Demux", (_: Any) => IO.unit).allocated.map(_._1)
-      input <- system.actorOf(Props[IO](Wire(false)), "input")
-      c_0 <- system.actorOf(Props[IO](Wire(false)), "c_0")
+      input <- system.actorOf(Wire(false), "input")
+      c_0 <- system.actorOf(Wire(false), "c_0")
 
-      out_0 <- system.actorOf(Props[IO](Wire(false)), "out_0")
-      out_1 <- system.actorOf(Props[IO](Wire(false)), "out_1")
+      out_0 <- system.actorOf(Wire(false), "out_0")
+      out_1 <- system.actorOf(Wire(false), "out_1")
 
-      _ <- system.actorOf(Props[IO](Demux2(input, c_0, out_0, out_1)), "demux2")
+      _ <- system.actorOf[LogicCircuitRequest](Demux2(input, c_0, out_0, out_1), "demux2")
       _ <- system.waitForIdle()
 
       checkTruthTable = (_c_0: Boolean) =>
@@ -359,8 +356,8 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
           _ <- input ! true
           _ <- c_0 ! _c_0
           _ <- system.waitForIdle()
-          out0V <- out_0 ? [Boolean] GetValue
-          out1V <- out_1 ? [Boolean] GetValue
+          out0V <- out_0.narrowResponse[Boolean] ? GetValue
+          out1V <- out_1.narrowResponse[Boolean] ? GetValue
         } yield (out0V, out1V)
 
       s1 <- checkTruthTable(false)
@@ -380,18 +377,18 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
   "A Demux" should "behave as a de-multiplexer to the wire stimuli!" in {
     (for {
       system <- ActorSystem[IO]("Demux", (_: Any) => IO.unit).allocated.map(_._1)
-      input <- system.actorOf(Props[IO](Wire(false)), "input")
-      c_0 <- system.actorOf(Props[IO](Wire(false)), "c_0")
-      c_1 <- system.actorOf(Props[IO](Wire(false)), "c_1")
+      input <- system.actorOf(Wire(false), "input")
+      c_0 <- system.actorOf(Wire(false), "c_0")
+      c_1 <- system.actorOf(Wire(false), "c_1")
 
-      out_0 <- system.actorOf(Props[IO](Wire(false)), "out_0")
-      out_1 <- system.actorOf(Props[IO](Wire(false)), "out_1")
-      out_2 <- system.actorOf(Props[IO](Wire(false)), "out_2")
-      out_3 <- system.actorOf(Props[IO](Wire(false)), "out_3")
+      out_0 <- system.actorOf(Wire(false), "out_0")
+      out_1 <- system.actorOf(Wire(false), "out_1")
+      out_2 <- system.actorOf(Wire(false), "out_2")
+      out_3 <- system.actorOf(Wire(false), "out_3")
 
       _ <- system.waitForIdle()
       _ <- system.actorOf(
-        Props[IO](Demux(input, List(c_0, c_1), List(out_0, out_1, out_2, out_3))),
+        Demux(input, List(c_0, c_1), List(out_0, out_1, out_2, out_3)),
         "demux"
       )
 
@@ -401,10 +398,10 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
           _ <- c_0 ! _c_0
           _ <- c_1 ! _c_1
           _ <- system.waitForIdle()
-          out0V <- out_0 ? [Boolean] GetValue
-          out1V <- out_1 ? [Boolean] GetValue
-          out2V <- out_2 ? [Boolean] GetValue
-          out3V <- out_3 ? [Boolean] GetValue
+          out0V <- out_0.narrowResponse[Boolean] ? GetValue
+          out1V <- out_1.narrowResponse[Boolean] ? GetValue
+          out2V <- out_2.narrowResponse[Boolean] ? GetValue
+          out3V <- out_3.narrowResponse[Boolean] ? GetValue
         } yield (out0V, out1V, out2V, out3V)
 
       s1 <- checkTruthTable(false, false)

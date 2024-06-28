@@ -16,6 +16,8 @@
 
 package com.suprnation.actor
 
+import com.suprnation.actor.ActorRef.NoSendActorRef
+
 import java.util.concurrent.TimeUnit
 
 sealed trait ChildStats
@@ -25,7 +27,7 @@ case object ChildNameReserved extends ChildStats
 /** ChildRestartStats is the statistics kept by every parent Actor for every child Actor and used for SupervisionStrategies to know how to deal with problems that occur for the children.
   */
 final case class ChildRestartStats[F[+_]](
-    child: ActorRef[F],
+    child: NoSendActorRef[F],
     var maxNrOfRetriesCount: Int = 0,
     var restartTimeWindowStartNanos: Long = 0L
 ) extends ChildStats {

@@ -19,7 +19,7 @@ package com.suprnation.actor.dispatch.mailbox
 import cats.effect._
 import cats.effect.std.{Console, Semaphore}
 import cats.syntax.all._
-import com.suprnation.actor.Actor.Message
+import com.suprnation.actor.ActorRef.ActorRef
 import com.suprnation.actor._
 import com.suprnation.typelevel.actors.syntax._
 
@@ -29,31 +29,31 @@ import scala.annotation.tailrec
 
 object Mailboxes {
 
-  def deadLetterMailbox[F[+_]: Console: Async: Temporal](
+  def deadLetterMailbox[F[+_]: Console: Async: Temporal, Request, Response](
       actorSystem: ActorSystem[F],
       receiver: Receiver[F]
-  ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Actor.Message]]] = {
-    def onDeadLetterMailboxEnqueue(msg: Envelope[F, Actor.Message]): F[Unit] = msg.message match {
+  ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]] = {
+    def onDeadLetterMailboxEnqueue(msg: Envelope[F, Request]): F[Unit] = msg.message match {
       case _: DeadLetter[?] => Async[F].unit // actor subscribing to DeadLetter, drop it
       case _ =>
         val dl: DeadLetter[F] = DeadLetter[F](msg, msg.sender, msg.receiver)
-        actorSystem.deadLetters.flatMap((deadLetter: ActorRef[F]) =>
-          deadLetter.tell(dl)(msg.sender)
+        actorSystem.deadLetters.flatMap((deadLetter: ActorRef[F, Any]) =>
+          (deadLetter ! dl)(msg.sender).as(())
         )
     }
 
-    new Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Actor.Message]] {
+    new Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]] {
       var lastReceived: Long = System.currentTimeMillis()
 
-      @inline override def enqueue(msg: EnvelopeWithDeferred[F, Message]): F[Unit] =
+      @inline override def enqueue(msg: EnvelopeWithDeferred[F, Request]): F[Unit] =
         Async[F].delay { lastReceived = System.currentTimeMillis() } >> onDeadLetterMailboxEnqueue(
           msg.envelope
         )
 
-      override def dequeue: F[EnvelopeWithDeferred[F, Message]] =
-        Concurrent[F].never[EnvelopeWithDeferred[F, Message]]
+      override def dequeue: F[EnvelopeWithDeferred[F, Request]] =
+        Concurrent[F].never[EnvelopeWithDeferred[F, Request]]
 
-      @inline override  val deadLockCheck: F[Boolean] = false.pure[F]
+      @inline override val deadLockCheck: F[Boolean] = false.pure[F]
 
       @inline override val hasMessage: F[Boolean] = false.pure[F]
 
@@ -62,7 +62,7 @@ object Mailboxes {
       @inline override val numberOfMessages: F[Int] = 0.pure[F]
 
       override def cleanup(
-          onMessage: Either[SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Message]] => F[Unit]
+          onMessage: Either[SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]] => F[Unit]
       ): F[Unit] = Async[F].unit
 
       @inline override def systemEnqueue(message: SystemMessageEnvelope[F]): F[Unit] =
@@ -73,7 +73,7 @@ object Mailboxes {
           receiver
         ))
 
-      @inline override val tryDequeue: F[Option[EnvelopeWithDeferred[F, Message]]] = None.pure[F]
+      @inline override val tryDequeue: F[Option[EnvelopeWithDeferred[F, Request]]] = None.pure[F]
 
       @inline override val suspendCount: F[Int] = 0.pure[F]
 
@@ -97,7 +97,7 @@ object Mailboxes {
         List.empty.pure[F]
 
       @inline override def processMailbox(onSystemMessage: SystemMessageEnvelope[F] => F[Unit])(
-          onUserMessage: EnvelopeWithDeferred[F, Message] => F[Unit]
+          onUserMessage: EnvelopeWithDeferred[F, Request] => F[Unit]
       ): F[Unit] =
         // We never want to process another message - technically there is no queue here so we want to simply
         // synthetically block until we receive the stop. Soon the shutdown signal will be called anyway which will exit the polling loop.

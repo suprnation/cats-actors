@@ -16,6 +16,10 @@
 
 package com.suprnation.actor
 
+import com.suprnation.actor.ActorRef.NoSendActorRef
+
+trait SystemCommand
+
 /** INTERNAL API
   *
   * Marker trait to show which Messages are automatically handled by the framework
@@ -28,11 +32,11 @@ trait PossiblyHarmful
 
 /** A message all Actors will understand, that when processed will terminate the Actor permanently.
   */
-case object PoisonPill extends AutoReceivedMessage with PossiblyHarmful
+case object PoisonPill extends AutoReceivedMessage with PossiblyHarmful with SystemCommand
 
 /** A message all Actors will understand, that when processed will make the Actor throw an ActorKilledException which will trigger supervision.
   */
-case object Kill extends AutoReceivedMessage with PossiblyHarmful
+case object Kill extends AutoReceivedMessage with PossiblyHarmful with SystemCommand
 
 /** When Death Watch is used, the watcher will receive a Terminated(watched) message when watched is terminated.
   *
@@ -40,11 +44,11 @@ case object Kill extends AutoReceivedMessage with PossiblyHarmful
   *
   * @param actor
   *   the watched actor that terminated.
+  * @param userMessage
+  *  the message that will be sent to the user.
   * @tparam F
   *   the effect type.
   */
-case class Terminated[F[+_]](actor: ActorRef[F]) extends AutoReceivedMessage with PossiblyHarmful
-
-/** When using ActorContext.setReceiveTimeout, the singleton instance of ReceiveTimeout will be sent to the Actor when there hasn't been any message for that long.
-  */
-case object ReceiveTimeout extends PossiblyHarmful
+case class Terminated[F[+_], Request](actor: NoSendActorRef[F], userMessage: Request)
+    extends AutoReceivedMessage
+    with PossiblyHarmful

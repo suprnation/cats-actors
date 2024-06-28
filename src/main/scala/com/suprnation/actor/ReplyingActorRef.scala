@@ -20,9 +20,10 @@ import cats.effect._
 import cats.effect.std.{Console, Supervisor}
 import cats.syntax.all._
 import cats.{Monad, Parallel}
-import com.suprnation.actor.Actor.Message
+import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.engine.ActorCell
-import com.suprnation.actor.props.Props
+
+import scala.annotation.unchecked.uncheckedVariance
 
 /** Message envelopes may implement this trait for better logging, such as logging of message class name of the wrapped message instead of the envelope class name.
   */
@@ -37,7 +38,7 @@ trait WrappedMessage {
 trait AllDeadLetters[F[+_]] extends WrappedMessage {
   def message: Any
 
-  def sender: Option[ActorRef[F]]
+  def sender: Option[NoSendActorRef[F]]
 
   def recipient: Receiver[F]
 }
@@ -46,7 +47,7 @@ trait AllDeadLetters[F[+_]] extends WrappedMessage {
   */
 final case class DeadLetter[F[+_]](
     message: Any,
-    sender: Option[ActorRef[F]],
+    sender: Option[NoSendActorRef[F]],
     recipient: Receiver[F]
 ) extends AllDeadLetters[F] {}
 
@@ -57,18 +58,18 @@ final case class DeadLetter[F[+_]](
 @SerialVersionUID(1L)
 final case class SuppressedDeadLetter[F[+_]](
     message: DeadLetterSuppression,
-    sender: Option[ActorRef[F]],
+    sender: Option[NoSendActorRef[F]],
     recipient: Receiver[F]
 ) extends AllDeadLetters[F] {}
 
 /** Envelope that is published on the eventStream wrapped in [[DeadLetter]] for every message that is dropped due to overfull queues or routers with no routees.
   *
-  * When this message was sent without a sender [[ActorRef]], `sender` will be `ActorRef.noSender`, i.e. `null`.
+  * When this message was sent without a sender [[ReplyingActorRef]], `sender` will be `ActorRef.noSender`, i.e. `null`.
   */
 final case class Dropped[F[+_]](
     message: Any,
     reason: String,
-    sender: Option[ActorRef[F]],
+    sender: Option[NoSendActorRef[F]],
     recipient: Receiver[F]
 ) extends AllDeadLetters[F]
 
@@ -78,10 +79,14 @@ trait DeadLetterSuppression {}
 
 /** Create an opaque type so that we are able to have another implicit (besides the sender. )
   */
-case class Receiver[F[+_]](actorRef: ActorRef[F]) extends AnyVal
+case class Receiver[F[+_]](actorRef: NoSendActorRef[F]) extends AnyVal
 
-trait ActorRef[F[+_]] {
+object ActorRef {
+  type NoSendActorRef[F[+_]] = ReplyingActorRef[F, Nothing, Any]
+  type ActorRef[F[+_], -Request] = ReplyingActorRef[F, Request, Any]
+}
 
+trait ReplyingActorRef[F[+_], -Request, +Response] {
   implicit def receiver: Receiver[F] = Receiver(this)
 
   implicit def monadEvidence: Monad[F]
@@ -92,19 +97,13 @@ trait ActorRef[F[+_]] {
     */
   def parent: ActorPath
 
-  def !(message: => Any)(implicit sender: Option[ActorRef[F]] = None): F[Unit]
+  def !(message: => Request)(implicit
+      sender: Option[ActorRef[F, Nothing]] = None
+  ): F[Unit]
 
-  def tell(message: => Any)(implicit sender: Option[ActorRef[F]] = None): F[Unit] =
-    this.!(message)(sender)
-
-  /** Forward a message from the sending actor so that the sender remains the original sender rather than swapping the sender with the current forwarder's reference.
-    *
-    * @param message
-    *   the message
-    * @param context
-    *   the current actor context.
-    */
-  def forward(message: => Any)(implicit context: ActorContext[F]): F[Unit] = >>!(message)
+  def !*(message: => SystemCommand)(implicit
+      sender: Option[ActorRef[F, Nothing]] = None
+  ): F[Unit]
 
   /** Forward a message from an original actor.
     *
@@ -113,18 +112,20 @@ trait ActorRef[F[+_]] {
     * @param context
     *   the context
     */
-  def >>!(message: => Any)(implicit context: ActorContext[F]): F[Unit] =
+  def forward(message: => Request)(implicit
+      context: MinimalActorContext[F, Nothing, Any]
+  ): F[Unit] =
     this.!(message)(context.sender)
 
-  // Here we could use a Message[_] but not sure.. check the tyep.
-  def ?[A <: Any](fa: => Any): F[A]
-
-  /** Wait for the computation to be processed by the inbound queue and disregard the result.
+  /** Forward a message from an original actor.
     *
-    * @param fa
-    *   the computation to be sent and processed by the queue.
+    * @param message
+    *   the message to forward.
+    * @param context
+    *   the context
     */
-  def ?!(fa: => Any): F[Any] = ?[Any](fa)
+  def >>!(message: => Request)(implicit context: MinimalActorContext[F, Nothing, Any]): F[Unit] =
+    this.forward(message)(context)
 
   /** Shuts down the actor with its message queu.
     *
@@ -132,22 +133,56 @@ trait ActorRef[F[+_]] {
     */
   def stop: F[Unit]
 
+  /** Narrow the type of this `ActorRef`, which is always a safe operation.
+    */
+  def narrowRequest[U <: Request]: ActorRef[F, U]
+
+  /** Unsafe utility method for widening the type accepted by this ActorRef request;
+    * provided to avoid having to use `asInstanceOf` on the full reference type,
+    * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[ClassCastException]] when you send a message
+    * to the widened [[ReplyingActorRef[F, U, Response]]].
+    */
+  def widenRequest[U >: Request @uncheckedVariance]: ActorRef[F, U]
+
+  // Here we could use a Message[_] but not sure.. check the type.
+  def ?(fa: => Request): F[Response]
+
+  def ?*(fa: => Any): F[Any]
+
+  /** Wait for the computation to be processed by the inbound queue and disregard the result.
+    *
+    * @param fa
+    *   the computation to be sent and processed by the queue.
+    */
+  def ?!(fa: => Request): F[Any] = ?*(fa)
+
+  /** Narrow the type of this `ActorRef`, which is always a safe operation.
+    */
+  def widenResponse[U >: Response]: ReplyingActorRef[F, Request, U]
+
+  /** Unsafe utility method for widening the type accepted by this ActorRef response;
+    * provided to avoid having to use `asInstanceOf` on the full reference type,
+    * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[ClassCastException]] when you send a message
+    * to the widened [[ReplyingActorRef[F, Request, U]]].
+    */
+  def narrowResponse[U <: Response @uncheckedVariance]: ReplyingActorRef[F, Request, U]
+
 }
 
 object InternalActorRef {
-  def apply[F[+_]: Parallel: Async: Temporal: Console](
+  def apply[F[+_]: Parallel: Async: Temporal: Console, Request, Response](
       supervisor: Supervisor[F],
       systemShutdownSignal: Deferred[F, Unit],
       name: String,
-      props: Props[F],
+      props: F[ReplyingActor[F, Request, Response]],
       system: ActorSystem[F],
       path: ActorPath,
-      parent: Option[InternalActorRef[F]],
+      parent: Option[NoSendActorRef[F]],
       sendSupervise: Boolean = true
-  ): F[InternalActorRef[F]] =
+  ): F[InternalActorRef[F, Request, Response]] =
     for {
-      cellRef <- Ref.of[F, Option[ActorCell[F]]](None)
-      localActorRef = InternalActorRef[F](
+      cellRef <- Ref.of[F, Option[ActorCell[F, Request, Response]]](None)
+      localActorRef = InternalActorRef[F, Request, Response](
         supervisor,
         systemShutdownSignal,
         name,
@@ -156,35 +191,43 @@ object InternalActorRef {
         path,
         cellRef
       )
-      cell <- ActorCell[F](supervisor, systemShutdownSignal, localActorRef, props, system, parent)
+      cell <- ActorCell[F, Request, Response](
+        supervisor,
+        systemShutdownSignal,
+        localActorRef,
+        props,
+        system,
+        parent
+      )
       _ <- localActorRef.actorCellRef.update(_ => Some(cell))
       _ <- cell.init(sendSupervise)
     } yield localActorRef
 }
 
-case class InternalActorRef[F[+_]: Parallel: Async: Temporal: Console](
+case class InternalActorRef[F[+_]: Parallel: Async: Temporal: Console, Request, Response](
     supervisor: Supervisor[F],
     systemShutdownSignal: Deferred[F, Unit],
     name: String,
-    props: Props[F],
+    props: F[ReplyingActor[F, Request, Response]],
     system: ActorSystem[F],
     override val path: ActorPath,
-    actorCellRef: Ref[F, Option[ActorCell[F]]]
-) extends ActorRef[F] { self =>
+    actorCellRef: Ref[F, Option[ActorCell[F, Request, Response]]]
+) extends ReplyingActorRef[F, Request, Response] { self =>
 
   override implicit def monadEvidence: Monad[F] = implicitly[Monad[F]]
 
   val start: F[Fiber[F, Throwable, Unit]] = assertCellActiveAndDo(actorCell => actorCell.start)
   val stop: F[Unit] = assertCellActiveAndDo(actorCell => actorCell.stop)
 
-  def ?[A <: Any](fa: => Message): F[A] = assertCellActiveAndDo(actorCell =>
+  def ?(fa: => Request): F[Response] = (this ?* fa).map(_.asInstanceOf[Response])
+
+  def ?*(fa: => Any): F[Any] = assertCellActiveAndDo[Any](actorCell =>
     for {
       // Here we need to add the logic not to push to the queue anymore if it shutdown...
-      deferred <- Deferred[F, Message]
+      deferred <- Deferred[F, Any]
       _ <- actorCell.sendMessage(Envelope(fa), Option(deferred))
       result <- deferred.get
-      // Later we will introduce a Message[_] to cater for this.
-    } yield result.asInstanceOf[A]
+    } yield result
   )
 
   /** Send a system message.
@@ -192,10 +235,13 @@ case class InternalActorRef[F[+_]: Parallel: Async: Temporal: Console](
   def sendSystemMessage(invocation: SystemMessageEnvelope[F]): F[Unit] =
     assertCellActiveAndDo(actorCell => actorCell.sendSystemMessage(invocation).void)
 
-  def !(fa: => Message)(implicit sender: Option[ActorRef[F]] = None): F[Unit] =
+  def !(fa: => Request)(implicit sender: Option[NoSendActorRef[F]] = None): F[Unit] =
+    assertCellActiveAndDo(actorCell => actorCell.sendMessage(Envelope(fa, sender, receiver), None))
+
+  def !*(fa: => SystemCommand)(implicit sender: Option[NoSendActorRef[F]] = None): F[Unit] =
     assertCellActiveAndDo(actorCell =>
-      actorCell.sendMessage(Envelope(fa, sender, receiver), None).void
-    )
+      actorCell.sendMessage(Envelope(fa, sender, receiver), None)
+    ).void
 
   def resume(causedByFailure: Option[Throwable]): F[Unit] =
     assertCellActiveAndDo(actorCell => actorCell.resume(causedByFailure))
@@ -203,7 +249,7 @@ case class InternalActorRef[F[+_]: Parallel: Async: Temporal: Console](
   def suspend(causedByFailure: Option[Throwable] = Option.empty[Throwable]): F[Unit] =
     assertCellActiveAndDo(actorCell => actorCell.suspend(causedByFailure))
 
-  def assertCellActiveAndDo[A](fn: ActorCell[F] => F[A]): F[A] = for {
+  def assertCellActiveAndDo[A](fn: ActorCell[F, Request, Response] => F[A]): F[A] = for {
     cell <- actorCellRef.get
     result <- cell match {
       case None =>
@@ -215,10 +261,18 @@ case class InternalActorRef[F[+_]: Parallel: Async: Temporal: Console](
   def restart(cause: Option[Throwable]): F[Unit] =
     assertCellActiveAndDo(actorCell => actorCell.restart(cause))
 
-  /** The path for the parent actor.
-    */
   override def parent: ActorPath = path.parent
 
   override def toString: String = s"[System: ${system.name}] [Path: $path] [name: $name]}"
+
+  override def narrowRequest[U <: Request]: ActorRef[F, U] = this
+
+  override def widenRequest[U >: Request]: ActorRef[F, U] =
+    this.asInstanceOf[ActorRef[F, U]]
+
+  override def widenResponse[U >: Response]: ReplyingActorRef[F, Request, U] = this
+
+  override def narrowResponse[U <: Response]: ReplyingActorRef[F, Request, U] =
+    this.asInstanceOf[ReplyingActorRef[F, Request, U]]
 
 }

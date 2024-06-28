@@ -17,18 +17,17 @@
 package com.suprnation.actor.engine
 
 import cats.effect.{Deferred, Fiber, Ref}
-import com.suprnation.actor.Actor.Message
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor._
 import com.suprnation.actor.dungeon.ChildrenContainer
-import com.suprnation.actor.props.Props
 
-trait Cell[F[+_]] {
+trait Cell[F[+_], Request, Response] {
 
   implicit def receiver: Receiver[F]
 
   /** The "self" reference which this Cell is attached to.
     */
-  implicit def self: ActorRef[F]
+  implicit def self: ReplyingActorRef[F, Request, Response]
 
   /** The system within which this Cell lives.
     */
@@ -60,15 +59,17 @@ trait Cell[F[+_]] {
 
   /** The supervisor of this actor.
     */
-  def parent: InternalActorRef[F]
+  def parent: NoSendActorRef[F]
 
   /** All children of this actor
     */
   def childrenRefs: Ref[F, ChildrenContainer[F]]
 
   /** Enqueue a message to be sent to the actor; may or may not actually schedule the actor to run, depending on which type of cell it is.
+    *
+    * Note internally messages are not typed, the typing comes on the layer on top of the actors.
     */
-  def sendMessage(msg: Envelope[F, Message], deferred: Option[Deferred[F, Any]] = None): F[Unit]
+  def sendMessage(msg: Envelope[F, Any], deferred: Option[Deferred[F, Any]] = None): F[Unit]
 
   /** Enqueue a message to be sent to the actor system queue; may or may not actually schedule the actor to run, depending on which type of cell it is.
     */
@@ -84,7 +85,7 @@ trait Cell[F[+_]] {
 
   /** The props for this actor cell.
     */
-  def props: Props[F]
+  def props: F[ReplyingActor[F, Request, Response]]
 
   /** Determines whether this cell is idle or whether it still has messages to process.
     *

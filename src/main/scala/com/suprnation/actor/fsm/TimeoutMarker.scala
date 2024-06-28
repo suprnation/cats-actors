@@ -16,11 +16,16 @@
 
 package com.suprnation.actor.fsm
 
-import com.suprnation.actor.ActorRef
+import com.suprnation.actor.ActorRef.NoSendActorRef
+import com.suprnation.actor.SystemCommand
 
 /** INTERNAL API
   */
-case class TimeoutMarker[F[+_]](generation: Long, originalSender: Option[ActorRef[F]])
+case class TimeoutMarker[F[+_], Request](
+    generation: Long,
+    originalSender: Option[NoSendActorRef[F]],
+    request: Request
+) extends SystemCommand
 
 /** INTERNAL API */
 private[fsm] sealed trait TimerMode {

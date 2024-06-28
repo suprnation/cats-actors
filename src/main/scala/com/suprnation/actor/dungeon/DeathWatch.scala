@@ -20,44 +20,47 @@ import cats.effect.kernel.Concurrent
 import cats.effect.{Async, Ref}
 import cats.syntax.all._
 import cats.effect.syntax.all._
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor.dispatch.SystemMessage.{DeathWatchNotification, UnWatch, Watch}
 import com.suprnation.actor.dungeon.DeathWatch.DeathWatchContext
 import com.suprnation.actor.engine.ActorCell
 import com.suprnation.actor.event.{Debug, Warning}
-import com.suprnation.actor.{ActorRef, Envelope, InternalActorRef, Terminated}
+import com.suprnation.actor.{Envelope, InternalActorRef, Terminated}
 
 import scala.collection.immutable.HashSet
 
 object DeathWatch {
-  def createContext[F[+_]: Concurrent]: F[DeathWatchContext[F]] = for {
-    _watchingRef <- Ref.of[F, Map[ActorRef[F], Option[Any]]](Map.empty[ActorRef[F], Option[Any]])
-    _watchedByRef <- Ref.of[F, Set[ActorRef[F]]](HashSet.empty[ActorRef[F]])
-  } yield DeathWatchContext[F](
+  def createContext[F[+_]: Concurrent, Request]: F[DeathWatchContext[F, Request]] = for {
+    _watchingRef <- Ref.of[F, Map[NoSendActorRef[F], Request]](
+      Map.empty[NoSendActorRef[F], Request]
+    )
+    _watchedByRef <- Ref.of[F, Set[NoSendActorRef[F]]](HashSet.empty[NoSendActorRef[F]])
+  } yield DeathWatchContext[F, Request](
     watchingRef = _watchingRef,
     watchedByRef = _watchedByRef
   )
 
-  case class DeathWatchContext[F[+_]](
-      watchingRef: Ref[F, Map[ActorRef[F], Option[Any]]],
-      watchedByRef: Ref[F, Set[ActorRef[F]]]
+  case class DeathWatchContext[F[+_], Request](
+      watchingRef: Ref[F, Map[NoSendActorRef[F], Request]],
+      watchedByRef: Ref[F, Set[NoSendActorRef[F]]]
   )
 }
 
-trait DeathWatch[F[+_]] {
-  self: ActorCell[F] =>
+trait DeathWatch[F[+_], Request, Response] {
+  self: ActorCell[F, Request, Response] =>
 
-  val deathWatchContext: DeathWatchContext[F]
+  val deathWatchContext: DeathWatchContext[F, Request]
   implicit val concurrentF: Concurrent[F]
   implicit val asyncF: Async[F]
 
-  def isWatching(ref: ActorRef[F]): F[Boolean] =
+  def isWatching(ref: NoSendActorRef[F]): F[Boolean] =
     deathWatchContext.watchingRef.get.map(_ contains ref)
 
-  def receivedTerminated(t: Terminated[F]): F[Unit] =
-    receiveMessage(Envelope(t)) >> removeChildAndGetStateChange(t.actor).void
+  def receivedTerminated(t: Terminated[F, Request]): F[Unit] =
+    (removeChildAndGetStateChange(t.actor) >> receiveMessage(Envelope(t.userMessage))).void
 
   protected def watchedActorTerminated(
-      actor: ActorRef[F],
+      actor: NoSendActorRef[F],
       existenceConfirmed: Boolean,
       addressTerminated: Boolean
   ): F[Unit] =
@@ -65,11 +68,11 @@ trait DeathWatch[F[+_]] {
       watching <- deathWatchContext.watchingRef.get
       _ <- watching.get(actor) match {
         case None => concurrentF.unit
-        case Some(optionalMessage) =>
+        case Some(message) =>
           deathWatchContext.watchingRef.update(watching => watching - actor) >>
             asyncF.ifM(isTerminated)(
               asyncF.unit,
-              sendMessage(Envelope(Terminated(actor), actor), None)
+              sendMessage(Envelope(Terminated(actor, message), actor), None)
             )
 
       }
@@ -78,10 +81,10 @@ trait DeathWatch[F[+_]] {
     } yield ()
 
   protected def tellWatcherWeDied(): F[Unit] = {
-    def sendTerminated(watcher: ActorRef[F]): F[Unit] =
+    def sendTerminated(watcher: NoSendActorRef[F]): F[Unit] =
       if (watcher != parent) {
         watcher
-          .asInstanceOf[InternalActorRef[F]]
+          .asInstanceOf[InternalActorRef[F, Nothing, Any]]
           .sendSystemMessage(
             Envelope.system(
               DeathWatchNotification(
@@ -97,7 +100,7 @@ trait DeathWatch[F[+_]] {
       watchedBy <- deathWatchContext.watchedByRef.get
       _ <- watchedBy.toList.parTraverse_(sendTerminated)
     } yield ()).guarantee(
-      deathWatchContext.watchedByRef.update(watchedBy => HashSet.empty[ActorRef[F]])
+      deathWatchContext.watchedByRef.update(watchedBy => HashSet.empty[NoSendActorRef[F]])
     )
   }
 
@@ -108,7 +111,7 @@ trait DeathWatch[F[+_]] {
         if (watching.nonEmpty) {
           watching.toList
             .parTraverse_ {
-              case (watchee: InternalActorRef[F], _) =>
+              case (watchee: InternalActorRef[F, ?, ?], _) =>
                 watchee.sendSystemMessage(
                   Envelope.systemNoSender(
                     UnWatch(watchee, self.self)
@@ -128,7 +131,11 @@ trait DeathWatch[F[+_]] {
         } else concurrentF.unit
     } yield ()
 
-  protected def addWatcher(watchee: ActorRef[F], watcher: ActorRef[F]): F[Unit] =
+  protected def addWatcher(
+      watchee: NoSendActorRef[F],
+      watcher: NoSendActorRef[F],
+      onTerminated: Request
+  ): F[Unit] =
     for {
       watcheeSelf <- Concurrent[F].pure(watchee == (self.self))
       watcherSelf <- Concurrent[F].pure(watcher == (self.self))
@@ -147,7 +154,7 @@ trait DeathWatch[F[+_]] {
             } else concurrentF.unit
           )
         } else if (!watcheeSelf && watcherSelf) {
-          watch(watchee)
+          watch(watchee, onTerminated)
         } else {
           publish(
             Warning(
@@ -159,9 +166,9 @@ trait DeathWatch[F[+_]] {
         }
     } yield ()
 
-  def watch(subject: ActorRef[F]): F[ActorRef[F]] =
+  def watch(subject: NoSendActorRef[F], onTerminated: Request): F[NoSendActorRef[F]] =
     subject match {
-      case a: InternalActorRef[F] =>
+      case a: InternalActorRef[F, Nothing, Any] =>
         for {
           selfReference <- self.actor.map(_.self)
           _ <-
@@ -172,10 +179,10 @@ trait DeathWatch[F[+_]] {
                   if (!watching.contains(a)) {
                     a.sendSystemMessage(
                       Envelope.systemNoSender(
-                        Watch(a, selfReference.asInstanceOf[InternalActorRef[F]])
+                        Watch(a, selfReference, onTerminated)
                       )
-                    ) >> updateWatching(a, None)
-                  } else checkWatchingSame(a, None)
+                    ) >> updateWatching(a, onTerminated)
+                  } else checkWatchingSame(a, onTerminated)
               } yield ()
             } else {
               concurrentF.pure(a)
@@ -188,10 +195,16 @@ trait DeathWatch[F[+_]] {
         )
     }
 
-  protected def updateWatching(ref: InternalActorRef[F], newMessage: Option[Any]): F[Unit] =
-    deathWatchContext.watchingRef.update(watching => watching.updated(ref, newMessage))
+  protected def updateWatching(
+      ref: InternalActorRef[F, Nothing, Any],
+      onTerminated: Request
+  ): F[Unit] =
+    deathWatchContext.watchingRef.update(watching => watching.updated(ref, onTerminated))
 
-  protected def checkWatchingSame(ref: InternalActorRef[F], newMessage: Option[Any]): F[Unit] =
+  protected def checkWatchingSame(
+      ref: InternalActorRef[F, Nothing, Any],
+      newMessage: Request
+  ): F[Unit] =
     for {
       watching <- deathWatchContext.watchingRef.get
       previous = watching.get(ref)
@@ -206,10 +219,10 @@ trait DeathWatch[F[+_]] {
         } else concurrentF.unit
     } yield ()
 
-  protected def removeWatcher(watchee: ActorRef[F], watcher: ActorRef[F]): F[Unit] =
+  protected def removeWatcher(watchee: NoSendActorRef[F], watcher: NoSendActorRef[F]): F[Unit] =
     for {
-      watcheeSelf <- Concurrent[F].pure(watchee == (self.self))
-      watcherSelf <- Concurrent[F].pure(watcher == (self.self))
+      watcheeSelf <- Concurrent[F].pure(watchee == self.self)
+      watcherSelf <- Concurrent[F].pure(watcher == self.self)
 
       _ <-
         if (watcheeSelf && !watcherSelf) {
@@ -238,20 +251,20 @@ trait DeathWatch[F[+_]] {
 
     } yield ()
 
-  def unwatch(subject: ActorRef[F]): F[ActorRef[F]] =
+  def unwatch(subject: NoSendActorRef[F]): F[NoSendActorRef[F]] =
     subject match {
-      case a: InternalActorRef[F] =>
+      case a: InternalActorRef[F, Nothing, Any] =>
         for {
           watching <- deathWatchContext.watchingRef.get
           selfReference <- self.actor.map(_.self)
           _ <-
             if (a != selfReference && watching.contains(a)) {
               a.sendSystemMessage(
-                Envelope.systemNoSender(UnWatch(a, selfReference.asInstanceOf[InternalActorRef[F]]))
+                Envelope.systemNoSender(UnWatch(a, selfReference))
               ) >>
                 deathWatchContext.watchingRef
                   .update(watching => watching - a)
-                  .as(Some(a.asInstanceOf[ActorRef[F]]))
+                  .as(Some(a))
 
             } else concurrentF.unit
 

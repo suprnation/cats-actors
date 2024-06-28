@@ -36,7 +36,7 @@ case class ActorInitalisationError[A](value: Option[A]) extends AnyVal {
     )
 
   def get[F[+_]: Concurrent]: F[A] =
-    value.fold(MonadThrow[F].raiseError[A](Actor.ACTOR_NOT_INITIALIZED))(_.pure[F])
+    value.fold(MonadThrow[F].raiseError[A](ReplyingActor.ACTOR_NOT_INITIALIZED))(_.pure[F])
 }
 
 /** Streamline accessing of Refs which have an Option[A] to A transformation and which also imply that not being able to do such transformation is a result of Actor initialisation failure.
@@ -61,7 +61,7 @@ case class ActorInitalisationErrorRef[F[_]: Temporal: Console, A](
       value <- underlyingRef.get
       result <- value match {
         case Some(a) => a.pure[F]
-        case _       => MonadThrow[F].raiseError(Actor.ACTOR_NOT_INITIALIZED)
+        case _       => MonadThrow[F].raiseError(ReplyingActor.ACTOR_NOT_INITIALIZED)
       }
     } yield result
 
@@ -70,7 +70,7 @@ case class ActorInitalisationErrorRef[F[_]: Temporal: Console, A](
       result <- underlyingRef.getAndUpdate(current => current.map(f))
       result <- result match {
         case Some(x) => x.pure[F]
-        case None    => MonadThrow[F].raiseError(Actor.ACTOR_NOT_INITIALIZED)
+        case None    => MonadThrow[F].raiseError(ReplyingActor.ACTOR_NOT_INITIALIZED)
       }
     } yield result
 
@@ -79,7 +79,7 @@ case class ActorInitalisationErrorRef[F[_]: Temporal: Console, A](
       result <- underlyingRef.getAndSet(a.some)
       result <- result match {
         case Some(x) => x.pure[F]
-        case None    => MonadThrow[F].raiseError(Actor.ACTOR_NOT_INITIALIZED)
+        case None    => MonadThrow[F].raiseError(ReplyingActor.ACTOR_NOT_INITIALIZED)
       }
     } yield result
 

@@ -2,20 +2,29 @@ package com.suprnation.actor.lifecycle
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import com.suprnation.actor.Actor.Actor
+import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor._
+import com.suprnation.actor.engine.ActorCell
 import com.suprnation.actor.lifecycle.Lifecycle.WatchContext
-import com.suprnation.actor.props.Props
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import java.util.UUID
+
 class DeathWatchSpec extends AsyncFlatSpec with Matchers {
+
+  sealed trait DeathWatchRequest
+  case class Message(message: String) extends DeathWatchRequest
+  case class Terminated(actorRef: NoSendActorRef[IO], correlationId: String)
+      extends DeathWatchRequest
 
   it should "be able to monitor actor in same hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 1", (_: Any) => IO.unit).allocated.map(_._1)
-      watcher <- actorSystem.actorOf(Props[IO](Actor.empty[IO]), "watcher")
-      watchee <- createChild(watcher)(Actor.empty, "watchee")
+      watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
+      watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
       waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
@@ -38,8 +47,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "be able to monitor actors in same hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 2", (_: Any) => IO.unit).allocated.map(_._1)
-      grandParent <- actorSystem.actorOf(Props[IO](Actor.empty), "grandParent")
-      parent <- createChild(grandParent)(Actor.empty, "parent")
+      grandParent <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "grandParent")
+      parent <- createChild(grandParent)(Actor.empty[IO, DeathWatchRequest], "parent")
       child1 <- createChild(parent)(Actor.empty, "child1")
       child2 <- createChild(parent)(Actor.empty, "child2")
       _ <- parent.cell
@@ -90,8 +99,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "be able to monitor parent actor in same hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 3", (_: Any) => IO.unit).allocated.map(_._1)
-      grandParent <- actorSystem.actorOf(Props[IO](Actor.empty), "grandParent")
-      parent <- createChild(grandParent)(Actor.empty, "parent")
+      grandParent <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "grandParent")
+      parent <- createChild(grandParent)(Actor.empty[IO, DeathWatchRequest], "parent")
 
       _ <- watch(parent, grandParent)
 
@@ -114,8 +123,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "be able to monitor actor in different hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 4", (_: Any) => IO.unit).allocated.map(_._1)
-      sol <- actorSystem.actorOf(Props[IO](Actor.empty), "sol")
-      centauri <- actorSystem.actorOf(Props[IO](Actor.empty), "alphaCentauri")
+      sol <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "sol")
+      centauri <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "alphaCentauri")
 
       _ <- watch(sol, centauri)
 
@@ -138,12 +147,12 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "be able to monitor actors in different hierarchies" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 5", (_: Any) => IO.unit).allocated.map(_._1)
-      sol <- actorSystem.actorOf(Props[IO](Actor.empty), "sol")
-      earth <- createChild(sol)(Actor.empty, "earth")
+      sol <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "sol")
+      earth <- createChild(sol)(Actor.empty[IO, DeathWatchRequest], "earth")
 
-      centauri <- actorSystem.actorOf(Props[IO](Actor.empty), "alphaCentauri")
-      proximaB <- createChild(centauri)(Actor.empty, "proximaB")
-      proximaC <- createChild(centauri)(Actor.empty, "proximaC")
+      centauri <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "alphaCentauri")
+      proximaB <- createChild(centauri)(Actor.empty[IO, DeathWatchRequest], "proximaB")
+      proximaC <- createChild(centauri)(Actor.empty[IO, DeathWatchRequest], "proximaC")
 
       _ <- watch(sol, earth)
       _ <- watch(earth, centauri)
@@ -208,16 +217,16 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
     recoverToExceptionIf[IllegalStateException] {
       (for {
         actorSystem <- ActorSystem[IO]("Death Watch 6", (_: Any) => IO.unit).allocated.map(_._1)
-        watcher <- actorSystem.actorOf(Props[IO](Actor.empty), "watcher")
-        watchee <- createChild(watcher)(Actor.empty, "watchee")
+        watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
+        watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
-        _ <- watch(watcher, watchee)
-        _ <- watch(watcher, watchee)
+        _ <- watch(watcher, watchee, "a")
+        _ <- watch(watcher, watchee, "b")
         _ <- List(watcher, watchee).waitForIdle
       } yield ()).unsafeToFuture()
     }.map(e =>
       e.getMessage should endWith(
-        "[System: Death Watch 6] [Path: kukku://death-watch-6@localhost/user/watcher/watchee] [name: watchee]}) termination message was not overwritten from [Some(None)] to [None]. If this was intended, unwatch first before using `watch` / `watchWith` with another message."
+        "[System: Death Watch 6] [Path: kukku://death-watch-6@localhost/user/watcher/watchee] [name: watchee]}) termination message was not overwritten from [Some(Terminated([System: Death Watch 6] [Path: kukku://death-watch-6@localhost/user/watcher/watchee] [name: watchee]},a))] to [Terminated([System: Death Watch 6] [Path: kukku://death-watch-6@localhost/user/watcher/watchee] [name: watchee]},b)]. If this was intended, unwatch first before using `watch` / `watchWith` with another message."
       )
     )
   }
@@ -225,7 +234,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "ignore self watch" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch", (_: Any) => IO.unit).allocated.map(_._1)
-      watcher <- actorSystem.actorOf(Props[IO](Actor.empty), "watcher")
+      watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
 
       _ <- watch(watcher, watcher)
       _ <- List(watcher).waitForIdle
@@ -239,8 +248,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "be aware of terminated child actor" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 7", (_: Any) => IO.unit).allocated.map(_._1)
-      watcher <- actorSystem.actorOf(Props[IO](Actor.ignoring), "watcher")
-      watchee <- createChild(watcher)(Actor.ignoring, "watchee")
+      watcher <- actorSystem.actorOf(Actor.ignoring[IO, DeathWatchRequest], "watcher")
+      watchee <- createChild(watcher)(Actor.ignoring[IO, DeathWatchRequest], "watchee")
 
       _ <- watch(watcher, watchee)
       _ <- actorSystem.waitForIdle()
@@ -262,8 +271,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "stop monitoring watched actor in same hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 8", (_: Any) => IO.unit).allocated.map(_._1)
-      watcher <- actorSystem.actorOf(Props[IO](Actor.empty), "watcher")
-      watchee <- createChild(watcher)(Actor.empty, "watchee")
+      watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
+      watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
       waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
@@ -286,10 +295,10 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "stop monitoring all watched actors in same hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 9", (_: Any) => IO.unit).allocated.map(_._1)
-      grandParent <- actorSystem.actorOf(Props[IO](Actor.empty), "grandParent")
-      parent <- createChild(grandParent)(Actor.empty, "parent")
-      child1 <- createChild(parent)(Actor.empty, "child1")
-      child2 <- createChild(parent)(Actor.empty, "child2")
+      grandParent <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "grandParent")
+      parent <- createChild(grandParent)(Actor.empty[IO, DeathWatchRequest], "parent")
+      child1 <- createChild(parent)(Actor.empty[IO, DeathWatchRequest], "child1")
+      child2 <- createChild(parent)(Actor.empty[IO, DeathWatchRequest], "child2")
 
       _ <- watch(grandParent, parent)
       _ <- watch(grandParent, child1)
@@ -335,10 +344,10 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "stop monitoring some watched actors in same hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 10", (_: Any) => IO.unit).allocated.map(_._1)
-      grandParent <- actorSystem.actorOf(Props[IO](Actor.empty), "grandParent")
-      parent <- createChild(grandParent)(Actor.empty, "parent")
-      child1 <- createChild(parent)(Actor.empty, "child1")
-      child2 <- createChild(parent)(Actor.empty, "child2")
+      grandParent <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "grandParent")
+      parent <- createChild(grandParent)(Actor.empty[IO, DeathWatchRequest], "parent")
+      child1 <- createChild(parent)(Actor.empty[IO, DeathWatchRequest], "child1")
+      child2 <- createChild(parent)(Actor.empty[IO, DeathWatchRequest], "child2")
 
       _ <- watch(grandParent, parent)
       _ <- watch(grandParent, child1)
@@ -385,8 +394,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "stop monitoring watched actor in different hierarchy" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 11", (_: Any) => IO.unit).allocated.map(_._1)
-      sol <- actorSystem.actorOf(Props[IO](Actor.empty), "sol")
-      centauri <- actorSystem.actorOf(Props[IO](Actor.empty), "alphaCentauri")
+      sol <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "sol")
+      centauri <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "alphaCentauri")
 
       _ <- watch(sol, centauri)
 
@@ -411,12 +420,12 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "stop monitoring watched actor in different hierarchies" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 12", (_: Any) => IO.unit).allocated.map(_._1)
-      sol <- actorSystem.actorOf(Props[IO](Actor.empty), "sol")
-      earth <- createChild(sol)(Actor.empty, "earth")
+      sol <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "sol")
+      earth <- createChild(sol)(Actor.empty[IO, DeathWatchRequest], "earth")
 
-      centauri <- actorSystem.actorOf(Props[IO](Actor.empty), "alphaCentauri")
-      proximaB <- createChild(centauri)(Actor.empty, "proximaB")
-      proximaC <- createChild(centauri)(Actor.empty, "proximaC")
+      centauri <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "alphaCentauri")
+      proximaB <- createChild(centauri)(Actor.empty[IO, DeathWatchRequest], "proximaB")
+      proximaC <- createChild(centauri)(Actor.empty[IO, DeathWatchRequest], "proximaC")
 
       _ <- watch(sol, earth)
       _ <- watch(earth, centauri)
@@ -478,8 +487,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "not fail when unwatching same actor multiple times" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 13", (_: Any) => IO.unit).allocated.map(_._1)
-      watcher <- actorSystem.actorOf(Props[IO](Actor.empty), "watcher")
-      watchee <- createChild(watcher)(Actor.empty, "watchee")
+      watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
+      watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
       waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
@@ -503,8 +512,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "ignore self unwatch" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 14", (_: Any) => IO.unit).allocated.map(_._1)
-      watcher <- actorSystem.actorOf(Props[IO](Actor.empty), "watcher")
-      watchee <- createChild(watcher)(Actor.empty, "watchee")
+      watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
+      watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
       waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
@@ -529,8 +538,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "remove non-child actor from 'terminated' queue" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 15", (_: Any) => IO.unit).allocated.map(_._1)
-      watcher <- actorSystem.actorOf(Props[IO](Actor.ignoring), "watcher")
-      watchee <- actorSystem.actorOf(Props[IO](Actor.ignoring), "watchee")
+      watcher <- actorSystem.actorOf(Actor.ignoring[IO, DeathWatchRequest], "watcher")
+      watchee <- actorSystem.actorOf(Actor.ignoring[IO, DeathWatchRequest], "watchee")
       userGuardian <- actorSystem.guardian.get
       waitAll = List(watcher, watchee, userGuardian).waitForIdle
       _ <- watch(watcher, watchee)
@@ -556,9 +565,9 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   it should "remove watcher reference in watchee.watchedBy when watcher dies" in {
     (for {
       actorSystem <- ActorSystem[IO]("Death Watch 16", (_: Any) => IO.unit).allocated.map(_._1)
-      parent <- actorSystem.actorOf(Props[IO](Actor.ignoring), "parent")
-      watcher <- createChild(parent)(Actor.ignoring, "watcher")
-      watchee <- createChild(parent)(Actor.ignoring, "watchee")
+      parent <- actorSystem.actorOf(Actor.ignoring[IO, DeathWatchRequest], "parent")
+      watcher <- createChild(parent)(Actor.ignoring[IO, DeathWatchRequest], "watcher")
+      watchee <- createChild(parent)(Actor.ignoring[IO, DeathWatchRequest], "watchee")
       userGuardian <- actorSystem.guardian.get
 
       waitAll = List(watcher, watchee, userGuardian).waitForIdle
@@ -581,20 +590,33 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
   }
 
   private def createChild(
-      actorRef: ActorRef[IO]
-  )(actor: Actor[IO], childName: String): IO[ActorRef[IO]] =
-    actorRef.cell.flatMap(_.actorOf(Props[IO](actor), childName))
+      actorRef: ActorRef[IO, DeathWatchRequest]
+  )(
+      actor: Actor[IO, DeathWatchRequest],
+      childName: String
+  ): IO[ActorRef[IO, DeathWatchRequest]] =
+    actorRef.cell.flatMap(_.actorOf(actor, childName))
 
-  private def watch(watcher: ActorRef[IO], watchee: ActorRef[IO]): IO[ActorRef[IO]] =
-    watcher.cell.flatMap(_.watch(watchee.asInstanceOf[InternalActorRef[IO]]))
+  private def watch(
+      watcher: ActorRef[IO, DeathWatchRequest],
+      watchee: NoSendActorRef[IO],
+      correlationId: String = UUID.randomUUID().toString
+  ): IO[NoSendActorRef[IO]] =
+    watcher.cell.flatMap(x =>
+      x.asInstanceOf[ActorCell[IO, DeathWatchRequest, Any]]
+        .watch(watchee, Terminated(watchee, correlationId))
+    )
 
-  private def unwatch(watcher: ActorRef[IO], watchee: ActorRef[IO]): IO[ActorRef[IO]] =
-    watcher.cell.flatMap(_.unwatch(watchee.asInstanceOf[InternalActorRef[IO]]))
+  private def unwatch(
+      watcher: ActorRef[IO, DeathWatchRequest],
+      watchee: NoSendActorRef[IO]
+  ): IO[NoSendActorRef[IO]] =
+    watcher.cell.flatMap(_.unwatch(watchee))
 
-  private def stop(actor: ActorRef[IO]): IO[Unit] =
+  private def stop(actor: NoSendActorRef[IO]): IO[Unit] =
     actor.cell.flatMap(_.stop)
 
-  private def getWatchContext(actor: ActorRef[IO]): IO[WatchContext] =
+  private def getWatchContext(actor: NoSendActorRef[IO]): IO[WatchContext] =
     for {
       cell <- actor.cell
       watchedBy <- cell.deathWatchContext.watchedByRef.get

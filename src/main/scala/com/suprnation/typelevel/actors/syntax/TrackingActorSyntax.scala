@@ -19,7 +19,9 @@ package com.suprnation.typelevel.actors.syntax
 import com.suprnation.actor.debug.TrackingActor
 
 trait TrackingActorSyntax {
-  implicit class TrackingActorFOps[F[+_]](fA: TrackingActor[F]) {
+  implicit class TrackingActorFOps[F[+_], Request, Response](
+      fA: TrackingActor[F, Request, Response]
+  ) {
 
     def initCount: F[Int] = fA.initCountRef.get
     def preStartCount: F[Int] = fA.preStartCountRef.get

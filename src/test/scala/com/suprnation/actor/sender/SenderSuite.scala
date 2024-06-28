@@ -2,18 +2,20 @@ package com.suprnation.actor.sender
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
-import com.suprnation.actor.Actor.Receive
-import com.suprnation.actor.props.Props
-import com.suprnation.actor.sender.Sender.BaseActor.{Ask, Forward, Tell}
-import com.suprnation.actor.{Actor, ActorRef, ActorSystem}
+import com.suprnation.actor.Actor.{Actor, Receive}
+import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
+import com.suprnation.actor.ActorSystem
+import com.suprnation.actor.sender.Sender.BaseActor.{Ask, BaseActorMessages, Forward, Tell}
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
 object Sender {
-  case class ForwardActor(forwardTo: ActorRef[IO], ref: Ref[IO, Option[ActorRef[IO]]])
-      extends Actor[IO] {
-    override def receive: Receive[IO] = {
+  case class ForwardActor(
+      forwardTo: ActorRef[IO, BaseActorMessages],
+      ref: Ref[IO, Option[NoSendActorRef[IO]]]
+  ) extends Actor[IO, BaseActorMessages] {
+    override def receive: Receive[IO, BaseActorMessages] = {
       case Tell(msg) =>
         ref.set(
           sender
@@ -21,7 +23,7 @@ object Sender {
       case Ask(msg) =>
         ref.set(
           sender
-        ) >> (forwardTo ? [String] Ask(msg))
+        ) >> (forwardTo ? Ask(msg))
       case Forward(msg, true) =>
         ref.set(
           sender
@@ -29,37 +31,48 @@ object Sender {
       case f @ Forward(_, false) =>
         ref.set(
           sender
-        ) >> forwardTo.forward(f)
+        ) >> forwardTo.>>!(f)
     }
   }
 
-  case class BaseActor(ref: Ref[IO, Option[ActorRef[IO]]]) extends Actor[IO] {
-    override def receive: Receive[IO] = {
+  case class BaseActor(ref: Ref[IO, Option[NoSendActorRef[IO]]])
+      extends Actor[IO, BaseActorMessages] {
+    override def receive: Receive[IO, BaseActorMessages] = {
       // Set the sender and set the IO to be the msg.
       case Tell(msg)       => ref.set(sender).as(msg)
       case Ask(msg)        => ref.set(sender).as(msg)
       case Forward(msg, _) => ref.set(sender).as(msg)
-      case msg             => IO.raiseError(new IllegalStateException(s"Received unknown message $msg"))
+      case msg => IO.raiseError(new IllegalStateException(s"Received unknown message $msg"))
     }
   }
 
   object ExampleCatsActor {
-    case class Shutdown()
+    trait SenderSuiteMessages
+    case class Shutdown() extends SenderSuiteMessages
 
-    case class Request(echoMessage: String)
+    case class Request(echoMessage: String) extends SenderSuiteMessages
 
-    case class Dangerous(echoMessage: String, crash: Boolean)
+    case class Dangerous(echoMessage: String, crash: Boolean) extends SenderSuiteMessages
 
-    case class JobRequest(echoMessage: String, sender: ActorRef[IO], crash: Boolean)
+    case class JobRequest(
+        echoMessage: String,
+        sender: ActorRef[IO, SenderSuiteMessages],
+        crash: Boolean
+    ) extends SenderSuiteMessages
 
-    case class JobReply(echoMessage: String, originalSender: ActorRef[IO])
+    case class JobReply(
+        echoMessage: String,
+        originalSender: ActorRef[IO, SenderSuiteMessages]
+    ) extends SenderSuiteMessages
   }
 
   object BaseActor {
-    case class Tell(msg: String)
-    case class Ask(msg: String)
-
+    trait BaseActorMessages
+    case class Tell(msg: String) extends BaseActorMessages
+    case class Ask(msg: String) extends BaseActorMessages
     case class Forward(msg: String, swapCurrentReceivingActorAsActorRef: Boolean)
+        extends BaseActorMessages
+    case class Message(msg: String) extends BaseActorMessages
   }
 }
 
@@ -68,11 +81,14 @@ class SenderSuite extends AsyncFlatSpec with Matchers {
   it should "include itself as a sender on messages when using tell.  " in {
     (for {
       system <- ActorSystem[IO]("sender-system", (_: Any) => IO.unit).allocated.map(_._1)
-      ref <- Ref[IO].of[Option[ActorRef[IO]]](None)
-      baseActor <- system.actorOf(Props[IO](Sender.BaseActor(ref)), "base-actor")
-      appRef <- Ref[IO].of[Option[ActorRef[IO]]](None)
-      forwardActor <- system.actorOf(
-        Props[IO](Sender.ForwardActor(baseActor, appRef)),
+      ref <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
+      baseActor <- system.actorOf[BaseActorMessages](
+        Sender.BaseActor(ref),
+        "base-actor"
+      )
+      appRef <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
+      forwardActor <- system.actorOf[BaseActorMessages](
+        Sender.ForwardActor(baseActor, appRef),
         "forward-actor"
       )
       // Send a message to the app actor
@@ -90,11 +106,14 @@ class SenderSuite extends AsyncFlatSpec with Matchers {
   it should "have a sender which is not defined when using ask.  " in {
     (for {
       system <- ActorSystem[IO]("sender-system-2", (_: Any) => IO.unit).allocated.map(_._1)
-      sinkSenderRef <- Ref[IO].of[Option[ActorRef[IO]]](None)
-      baseActor <- system.actorOf(Props[IO](Sender.BaseActor(sinkSenderRef)), "sink")
-      forwardSenderRef <- Ref[IO].of[Option[ActorRef[IO]]](None)
-      forwardActor <- system.actorOf(
-        Props[IO](Sender.ForwardActor(baseActor, forwardSenderRef)),
+      sinkSenderRef <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
+      baseActor <- system.actorOf[BaseActorMessages](
+        Sender.BaseActor(sinkSenderRef),
+        "sink"
+      )
+      forwardSenderRef <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
+      forwardActor <- system.actorOf[BaseActorMessages](
+        Sender.ForwardActor(baseActor, forwardSenderRef),
         "forward-actor"
       )
       // Send a message to the app actor
@@ -111,18 +130,21 @@ class SenderSuite extends AsyncFlatSpec with Matchers {
   it should "include itself as a sender on messages when using tell. (double forward)  " in {
     (for {
       system <- ActorSystem[IO]("sender-system-3", (_: Any) => IO.unit).allocated.map(_._1)
-      ref2 <- Ref[IO].of[Option[ActorRef[IO]]](None)
-      sinkActor <- system.actorOf(Props[IO](Sender.BaseActor(ref2)), "base-actor")
+      ref2 <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
+      sinkActor <- system.actorOf[BaseActorMessages](
+        Sender.BaseActor(ref2),
+        "base-actor"
+      )
 
-      ref1 <- Ref[IO].of[Option[ActorRef[IO]]](None)
-      forwardActor2 <- system.actorOf(
-        Props[IO](Sender.ForwardActor(sinkActor, ref1)),
+      ref1 <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
+      forwardActor2 <- system.actorOf[BaseActorMessages](
+        Sender.ForwardActor(sinkActor, ref1),
         "forward-actor-2"
       )
 
-      appRef <- Ref[IO].of[Option[ActorRef[IO]]](None)
-      forwardActor1 <- system.actorOf(
-        Props[IO](Sender.ForwardActor(forwardActor2, appRef)),
+      appRef <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
+      forwardActor1 <- system.actorOf[BaseActorMessages](
+        Sender.ForwardActor(forwardActor2, appRef),
         "forward-actor-1"
       )
 

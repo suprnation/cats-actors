@@ -17,10 +17,12 @@
 package com.suprnation.actor.debug
 
 import cats.Parallel
+import cats.effect.std.Console
 import cats.effect.{Concurrent, Ref, Temporal}
 import cats.implicits._
+import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.utils.Unsafe
-import com.suprnation.actor.{Actor, ActorConfig, SupervisionStrategy}
+import com.suprnation.actor.{ActorConfig, ReplyingActor, SupervisionStrategy}
 
 object TrackingActor {
   type ActorRefs[F[_]] = (
@@ -36,11 +38,11 @@ object TrackingActor {
       Ref[F, List[(Throwable, Option[Any])]]
   )
 
-  def create[F[+_]: Parallel: Concurrent: Temporal](
+  def create[F[+_]: Parallel: Concurrent: Temporal: Console, Request, Response](
       cache: Ref[F, Map[String, ActorRefs[F]]],
       stableName: String,
-      proxy: Actor[F]
-  ): F[TrackingActor[F]] = {
+      proxy: ReplyingActor[F, Request, Response]
+  ): F[TrackingActor[F, Request, Response]] = {
     def newRefs: (
         F[Ref[F, Int]],
         F[Ref[F, Int]],
@@ -71,7 +73,7 @@ object TrackingActor {
       currentCache.get(stableName) match {
         case Some(refs) =>
           Concurrent[F].pure(
-            new TrackingActor[F](
+            new TrackingActor[F, Request, Response](
               refs._1,
               refs._2,
               refs._3,
@@ -104,7 +106,7 @@ object TrackingActor {
                 _ + (stableName -> (initCountRef, preStartCountRef, postStopCountRef, preRestartCountRef, postRestartCountRef, preSuspendCountRef, preResumeCountRef, messageBufferRef, restartMessageBufferRef, errorMessageBufferRef))
               ) *>
                 Concurrent[F].pure(
-                  new TrackingActor[F](
+                  new TrackingActor[F, Request, Response](
                     initCountRef,
                     preStartCountRef,
                     postStopCountRef,
@@ -124,7 +126,7 @@ object TrackingActor {
   }
 }
 
-final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal](
+final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal: Console, Request, Response](
     initCountRef: Ref[F, Int],
     preStartCountRef: Ref[F, Int],
     postStopCountRef: Ref[F, Int],
@@ -135,12 +137,12 @@ final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal](
     messageBufferRef: Ref[F, List[Any]],
     restartMessageBufferRef: Ref[F, List[(Option[Throwable], Option[Any])]],
     errorMessageBufferRef: Ref[F, List[(Throwable, Option[Any])]],
-    proxy: Actor[F]
-) extends Actor[F]
+    proxy: ReplyingActor[F, Request, Response]
+) extends ReplyingActor[F, Request, Response]
     with ActorConfig {
 
-  override val receive: Actor.Receive[F] = { case m =>
-    messageBufferRef.update(_ ++ List(m)) >> proxy.receive(m)
+  override val receive: ReplyingReceive[F, Request, Response] = { case m =>
+    messageBufferRef.update(_ ++ List(m)) >> Console[F].println(m) >> proxy.receive(m)
   }
 
   override def supervisorStrategy: SupervisionStrategy[F] = proxy.supervisorStrategy
@@ -153,7 +155,7 @@ final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal](
     initCountRef.update(_ + 1) >>
       Unsafe
         .setActorContext(
-          Unsafe.setActorSelf(proxy, self),
+          Unsafe.setActorSelf[F, Request, Response](proxy, self),
           context
         )
         .pure[F]

@@ -1,7 +1,7 @@
 package com.suprnation.fsm
 
 import cats.effect.{IO, Ref}
-import com.suprnation.actor.Actor
+import com.suprnation.actor.Actor.Actor
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.fsm.State.StateTimeout
 import com.suprnation.actor.fsm.{FSM, StateManager}
@@ -9,11 +9,15 @@ import com.suprnation.typelevel.fsm.syntax._
 
 import scala.concurrent.duration._
 
+// Case class to store the data.
+case class Item(name: String, amount: Int, price: Double)
+
 // Messages
 sealed trait VendingRequest
 case class SelectProduct(product: String) extends VendingRequest
 case class InsertMoney(amount: Double) extends VendingRequest
 case object Dispense extends VendingRequest
+case object AwaitingUserTimeout extends VendingRequest
 
 sealed trait VendingResponse
 case object ProductOutOfStock
@@ -37,9 +41,9 @@ case class TransactionData(product: String, price: Double, insertedAmount: Doubl
     extends VendingMachineData
 
 object VendingMachine {
-  def vendingMachine(_inventory: Item*): IO[Actor[IO]] = {
-    type SM = StateManager[IO, VendingMachineState, VendingMachineData]
-    type SF = FSM.StateFunction[IO, VendingMachineState, VendingMachineData]
+  def vendingMachine(_inventory: Item*): IO[Actor[IO, VendingRequest]] = {
+    type SM = StateManager[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
+    type SF = FSM.StateFunction[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
     for {
       inventory <- Ref[IO].of(_inventory.map(x => x.name -> x).toMap)
       productAvailable = (product: String) =>
@@ -101,7 +105,7 @@ object VendingMachine {
         // Customer has timed out, we need to give back the money if the customer inserted some.
         case (
               Event(StateTimeout, _),
-              sM: StateManager[IO, VendingMachineState, VendingMachineData]
+              sM: StateManager[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
             ) =>
           sM.goto(Idle).using(Uninitialized()).replying(Timeout)
       }
@@ -122,16 +126,16 @@ object VendingMachine {
       }
 
       // Putting it all together...
-      vendingMachine <- FSM[IO, VendingMachineState, VendingMachineData]
+      vendingMachine <- FSM[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
         .when(Idle)(idleState)
-        .when(AwaitingPayment, stateTimeout = 1.seconds)(awaitingPaymentState)
+        .when(AwaitingPayment, stateTimeout = 1.seconds, onTimeout = AwaitingUserTimeout)(
+          awaitingPaymentState
+        )
         .when(Dispensing)(dispensingState)
         .when(OutOfStock)(outOfStockState)
-//        .withConfig(FSMConfig.withConsoleInformation)
+        //        .withConfig(FSMConfig.withConsoleInformation)
         .startWith(Idle, Uninitialized())
         .initialize
     } yield vendingMachine
   }
-
-  case class Item(name: String, amount: Int, price: Double)
 }

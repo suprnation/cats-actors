@@ -15,10 +15,10 @@
  */
 
 package com.suprnation.actor.dungeon
-
 import cats.effect.{Async, Concurrent, Temporal}
 import cats.implicits._
-import com.suprnation.actor.Actor.Receive
+import com.suprnation.actor.Actor.ReplyingReceive
+import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor._
 import com.suprnation.actor.engine.ActorCell
 import com.suprnation.actor.event.{Debug, Error}
@@ -29,31 +29,33 @@ import scala.collection.mutable
 import scala.util.control.NonFatal
 
 object Creation {
-  def createContext[F[+_]: Async]: F[CreationContext[F]] = Async[F].pure {
-    CreationContext[F](None, mutable.Stack.empty, None, None)
-  }
+  def createContext[F[+_]: Async, Request, Response]: F[CreationContext[F, Request, Response]] =
+    Async[F].pure {
+      CreationContext[F, Request, Response](None, mutable.Stack.empty, None, None)
+    }
 
-  case class CreationContext[F[+_]](
-      var actorOp: Option[Actor[F]],
-      var behaviourStack: mutable.Stack[Actor.Receive[F]],
-      var actorContextOp: Option[ActorContext[F]],
-      var senderOp: Option[ActorRef[F]]
+  case class CreationContext[F[+_], Request, Response](
+      var actorOp: Option[ReplyingActor[F, Request, Response]],
+      var behaviourStack: mutable.Stack[ReplyingReceive[F, Request, Response]],
+      var actorContextOp: Option[ActorContext[F, Request, Response]],
+      var senderOp: Option[NoSendActorRef[F]]
   ) {
-    def actorF: ActorInitalisationError[Actor[F]] = ActorInitalisationError[Actor[F]](actorOp)
-    def actorContextF: ActorInitalisationError[ActorContext[F]] =
-      ActorInitalisationError[ActorContext[F]](actorContextOp)
+    def actorF: ActorInitalisationError[ReplyingActor[F, Request, Response]] =
+      ActorInitalisationError[ReplyingActor[F, Request, Response]](actorOp)
+    def actorContextF: ActorInitalisationError[ActorContext[F, Request, Response]] =
+      ActorInitalisationError[ActorContext[F, Request, Response]](actorContextOp)
   }
 
 }
 
-trait Creation[F[+_]] {
-  this: ActorCell[F] =>
+trait Creation[F[+_], Request, Response] {
+  this: ActorCell[F, Request, Response] =>
 
   import Creation._
 
   implicit val asyncF: Async[F]
   implicit val temporalF: Temporal[F]
-  implicit val creationContext: CreationContext[F]
+  implicit val creationContext: CreationContext[F, Request, Response]
 
   def create(failure: Option[ActorInitializationException[F]]): F[Unit] = {
     def failActor: F[Unit] =
@@ -69,7 +71,9 @@ trait Creation[F[+_]] {
       .fold(
         // If we do not have a failure try creating the actor, otherwise throw the failure.
         (
-          (newActor >>= ((created: Actor[F]) => created.aroundPreStart())) >>
+          (newActor >>= ((created: ReplyingActor[F, Request, Response]) =>
+            created.aroundPreStart()
+          )) >>
             system.settings.DebugLifecycle
               .pure[F]
               .ifM(
@@ -106,13 +110,13 @@ trait Creation[F[+_]] {
 
   }
 
-  def newActor: F[Actor[F]] =
+  def newActor: F[ReplyingActor[F, Request, Response]] =
     for {
       actorContext <- asyncF.pure(
-        ActorContext.createActorContext[F](
+        ActorContext.createActorContext[F, Request, Response](
           actorSystem,
           parent,
-          self.asInstanceOf[InternalActorRef[F]],
+          self.asInstanceOf[InternalActorRef[F, Request, Response]],
           creationContext
         )
       )
@@ -123,11 +127,13 @@ trait Creation[F[+_]] {
       }
 
       // Create the actor and set the fields on the actor.
-      actor <- props.newActor.map { actor =>
-        Unsafe.setActorContext(
-          Unsafe.setActorSelf(actor, self),
-          actorContext
-        )
+      actor <- props.flatMap { actor =>
+        Unsafe
+          .setActorContext(
+            Unsafe.setActorSelf(actor, self),
+            actorContext
+          )
+          .pure[F]
       }
 
       _ <- actor.init
@@ -139,7 +145,7 @@ trait Creation[F[+_]] {
       _ <- asyncF.delay(creationContext.behaviourStack.push(actor.receive))
     } yield actor
 
-  def supervise(child: ActorRef[F]): F[Unit] =
+  def supervise(child: NoSendActorRef[F]): F[Unit] =
     isTerminating.ifM(
       asyncF.unit,
 
@@ -171,13 +177,20 @@ trait Creation[F[+_]] {
     * @return
     *   an effect unit
     */
-  @inline final def receiveMessage(messageHandle: Envelope[F, Actor.Message]): F[Any] =
+  @inline final def receiveMessage(messageHandle: Envelope[F, Any]): F[Any] =
     for {
       actor <- creationContext.actorF.get
-      result <- actor.aroundReceive(creationContext.behaviourStack.top, messageHandle.message)
+      result <- actor.aroundReceive(
+        // Try this...
+        creationContext.behaviourStack.top,
+        messageHandle.message
+      )
     } yield result
 
-  override def become(behaviour: Receive[F], discardOld: Boolean): F[Unit] =
+  override def become(
+      behaviour: ReplyingReceive[F, Request, Response],
+      discardOld: Boolean
+  ): F[Unit] =
     asyncF.delay {
       if (discardOld) creationContext.behaviourStack.pop()
       creationContext.behaviourStack.push(behaviour)
