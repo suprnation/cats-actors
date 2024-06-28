@@ -139,8 +139,8 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
 
   /** Unsafe utility method for widening the type accepted by this ActorRef request;
     * provided to avoid having to use `asInstanceOf` on the full reference type,
-    * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[ClassCastException]] when you send a message
-    * to the widened [[ReplyingActorRef[F, U, Response]]].
+    * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[java.lang.ClassCastException]] when you send a message
+    * to the widened ReplyingActorRef[F, U, Response].
     */
   def widenRequest[U >: Request @uncheckedVariance]: ActorRef[F, U]
 
@@ -162,8 +162,8 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
 
   /** Unsafe utility method for widening the type accepted by this ActorRef response;
     * provided to avoid having to use `asInstanceOf` on the full reference type,
-    * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[ClassCastException]] when you send a message
-    * to the widened [[ReplyingActorRef[F, Request, U]]].
+    * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[java.lang.ClassCastException]] when you send a message
+    * to the widened ReplyingActorRef[F, Request, U].
     */
   def narrowResponse[U <: Response @uncheckedVariance]: ReplyingActorRef[F, Request, U]
 
