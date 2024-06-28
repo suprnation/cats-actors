@@ -142,7 +142,7 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
     * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[ClassCastException]] when you send a message
     * to the widened [[ReplyingActorRef[F, U, Response]]].
     */
-  def unsafeUpcastRequest[U >: Request @uncheckedVariance]: ActorRef[F, U]
+  def widenRequest[U >: Request @uncheckedVariance]: ActorRef[F, U]
 
   // Here we could use a Message[_] but not sure.. check the type.
   def ?(fa: => Request): F[Response]
@@ -165,7 +165,7 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
     * which would unfortunately also work on non-ActorRefs. Use it with caution,it may cause a [[ClassCastException]] when you send a message
     * to the widened [[ReplyingActorRef[F, Request, U]]].
     */
-  def unsafeDowncastResponse[U <: Response @uncheckedVariance]: ReplyingActorRef[F, Request, U]
+  def narrowResponse[U <: Response @uncheckedVariance]: ReplyingActorRef[F, Request, U]
 
 }
 
@@ -267,12 +267,12 @@ case class InternalActorRef[F[+_]: Parallel: Async: Temporal: Console, Request, 
 
   override def narrowRequest[U <: Request]: ActorRef[F, U] = this
 
-  override def unsafeUpcastRequest[U >: Request]: ActorRef[F, U] =
+  override def widenRequest[U >: Request]: ActorRef[F, U] =
     this.asInstanceOf[ActorRef[F, U]]
 
   override def widenResponse[U >: Response]: ReplyingActorRef[F, Request, U] = this
 
-  override def unsafeDowncastResponse[U <: Response]: ReplyingActorRef[F, Request, U] =
+  override def narrowResponse[U <: Response]: ReplyingActorRef[F, Request, U] =
     this.asInstanceOf[ReplyingActorRef[F, Request, U]]
 
 }

@@ -19,9 +19,9 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       probe <- actorSystem.actorOf(Probe(input), "probe0")
 
       _ <- input ! true
-      result1 <- probe.unsafeDowncastResponse[Boolean] ? GetValue
+      result1 <- probe.narrowResponse[Boolean] ? GetValue
       _ <- input ! false
-      result2 <- probe.unsafeDowncastResponse[Boolean] ? GetValue
+      result2 <- probe.narrowResponse[Boolean] ? GetValue
     } yield (result1, result2)).unsafeToFuture().map { case (result1, result2) =>
       result1 should be(true)
       result2 should be(false)
@@ -37,7 +37,7 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       ).allocated.map(_._1)
       input <- system.actorOfWithDebug(Wire(false), "in0")
       _ <- input ! true
-      result <- input.unsafeDowncastResponse[Boolean] ? GetValue
+      result <- input.narrowResponse[Boolean] ? GetValue
       _ <- system.waitForIdle()
       debugMessage <- debugMessage.get
     } yield (result, debugMessage)).unsafeToFuture().map { case (result, debugMessage) =>
@@ -64,12 +64,12 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       //  Scenario 1 [Input: True] [Output: False]
       _ <- input0 ! true
       _ <- actorSystem.waitForIdle()
-      res1 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input: False] [Output: True]"
       _ <- input0 ! false
       _ <- actorSystem.waitForIdle()
-      res2 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2)).unsafeToFuture().map { case (res1, res2) =>
       res1 should be(false)
@@ -96,17 +96,17 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       // Scenario 1 [Input0: True] [Input1: False] [Output: False]
       _ <- input0 ! true
       _ <- system.waitForIdle()
-      res1 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- system.waitForIdle()
-      res2 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- system.waitForIdle()
-      res3 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3)).unsafeToFuture().map { case (res1, res2, res3) =>
       res1 should be(false)
@@ -128,17 +128,17 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
 
       _ <- input0 ! true
       _ <- system.waitForIdle()
-      res1 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- system.waitForIdle()
-      res2 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- system.waitForIdle()
-      res3 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3)).unsafeToFuture().map { case (res1, res2, res3) =>
       res1 should be(false)
@@ -161,22 +161,22 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       // Scenario 1 [Input0: True] [Input1: False] [Output: True]
       _ <- input0 ! true
       _ <- actorSystem.waitForIdle()
-      res1 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- actorSystem.waitForIdle()
-      res2 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 3 [Input0: False] [Input1: True] [Output: True]
       _ <- input0 ! false
       _ <- actorSystem.waitForIdle()
-      res3 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 4 [Input0: False] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- actorSystem.waitForIdle()
-      res4 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res4 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3, res4)).unsafeToFuture().map { case (res1, res2, res3, res4) =>
       res1 should be(true)
@@ -201,22 +201,22 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       // Scenario 1 [Input0: True] [Input1: False] [Output: True]
       _ <- input0 ! true
       _ <- actorSystem.waitForIdle()
-      res1 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res1 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 2 [Input0: True] [Input1: True] [Output: True]
       _ <- input1 ! true
       _ <- actorSystem.waitForIdle()
-      res2 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res2 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 3 [Input0: False] [Input1: True] [Output: True]
       _ <- input0 ! false
       _ <- actorSystem.waitForIdle()
-      res3 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res3 <- output0.narrowResponse[Boolean] ? GetValue
 
       // Scenario 4 [Input0: False] [Input1: False] [Output: False]
       _ <- input1 ! false
       _ <- actorSystem.waitForIdle()
-      res4 <- output0.unsafeDowncastResponse[Boolean] ? GetValue
+      res4 <- output0.narrowResponse[Boolean] ? GetValue
 
     } yield (res1, res2, res3, res4)).unsafeToFuture().map { case (res1, res2, res3, res4) =>
       res1 should be(true)
@@ -241,22 +241,22 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
       // Scenario A ~~~~~~~~~~~~~~~~~~~~~~
       _ <- a ! true
       _ <- system.waitForIdle()
-      s0 <- s.unsafeDowncastResponse[Boolean] ? GetValue
-      c0 <- c.unsafeDowncastResponse[Boolean] ? GetValue
+      s0 <- s.narrowResponse[Boolean] ? GetValue
+      c0 <- c.narrowResponse[Boolean] ? GetValue
 
       // Scenario B ~~~~~~~~~~~~~~~~~~~~~~
       // Send b a 1 (s should be 1  and c should be 1)
       _ <- b ! true
       _ <- system.waitForIdle()
-      s1 <- s.unsafeDowncastResponse[Boolean] ? GetValue
-      c1 <- c.unsafeDowncastResponse[Boolean] ? GetValue
+      s1 <- s.narrowResponse[Boolean] ? GetValue
+      c1 <- c.narrowResponse[Boolean] ? GetValue
 
       // Scenario C ~~~~~~~~~~~~~~~~~~~~~~
       // Send b a 1 (s should be 1  and c should be 1)
       _ <- b ! false
       _ <- system.waitForIdle()
-      s2 <- s.unsafeDowncastResponse[Boolean] ? GetValue
-      c2 <- c.unsafeDowncastResponse[Boolean] ? GetValue
+      s2 <- s.narrowResponse[Boolean] ? GetValue
+      c2 <- c.narrowResponse[Boolean] ? GetValue
 
     } yield ((s0, c0), (s1, c1), (s2, c2))).unsafeToFuture().map {
       case ((s0, c0), (s1, c1), (s2, c2)) =>
@@ -289,8 +289,8 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
           _ <- b ! bV
           _ <- cin ! cV
           _ <- system.waitForIdle()
-          _sumV <- sum.unsafeDowncastResponse[Boolean] ? GetValue
-          _coutV <- cout.unsafeDowncastResponse[Boolean] ? GetValue
+          _sumV <- sum.narrowResponse[Boolean] ? GetValue
+          _coutV <- cout.narrowResponse[Boolean] ? GetValue
         } yield (_sumV, _coutV)
 
       s1 <- checkTruthTable(false, false, false)
@@ -356,8 +356,8 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
           _ <- input ! true
           _ <- c_0 ! _c_0
           _ <- system.waitForIdle()
-          out0V <- out_0.unsafeDowncastResponse[Boolean] ? GetValue
-          out1V <- out_1.unsafeDowncastResponse[Boolean] ? GetValue
+          out0V <- out_0.narrowResponse[Boolean] ? GetValue
+          out1V <- out_1.narrowResponse[Boolean] ? GetValue
         } yield (out0V, out1V)
 
       s1 <- checkTruthTable(false)
@@ -398,10 +398,10 @@ class LogicCircuitSpec extends AsyncFlatSpec with Matchers with SimConfig {
           _ <- c_0 ! _c_0
           _ <- c_1 ! _c_1
           _ <- system.waitForIdle()
-          out0V <- out_0.unsafeDowncastResponse[Boolean] ? GetValue
-          out1V <- out_1.unsafeDowncastResponse[Boolean] ? GetValue
-          out2V <- out_2.unsafeDowncastResponse[Boolean] ? GetValue
-          out3V <- out_3.unsafeDowncastResponse[Boolean] ? GetValue
+          out0V <- out_0.narrowResponse[Boolean] ? GetValue
+          out1V <- out_1.narrowResponse[Boolean] ? GetValue
+          out2V <- out_2.narrowResponse[Boolean] ? GetValue
+          out3V <- out_3.narrowResponse[Boolean] ? GetValue
         } yield (out0V, out1V, out2V, out3V)
 
       s1 <- checkTruthTable(false, false)

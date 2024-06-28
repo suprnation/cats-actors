@@ -325,9 +325,8 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
                 makeTransition(nextState)
 
               case Some(_) =>
-                val sendReplies: F[Unit] = nextState.replies.reverse.traverse_(r =>
-                  sender.get.unsafeUpcastRequest[Response] ! r
-                )
+                val sendReplies: F[Unit] =
+                  nextState.replies.reverse.traverse_(r => sender.get.widenRequest[Response] ! r)
                 sendReplies >> terminate(nextState) >> context.stop(self)
             }
 
@@ -369,7 +368,7 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
                   sender.fold(Sync[F].unit)(sender =>
                     {
                       // The sender knew that we could send him the Response so this is totally safe.
-                      sender.unsafeUpcastRequest[Response] ! r
+                      sender.widenRequest[Response] ! r
                     }.void
                   )
                 ) >>

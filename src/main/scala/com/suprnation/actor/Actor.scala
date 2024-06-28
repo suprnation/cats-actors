@@ -22,7 +22,6 @@ import cats.syntax.all._
 import cats.{Monad, MonadThrow, Parallel}
 import com.suprnation.actor.Actor.{Actor, Receive, ReplyingReceive}
 import com.suprnation.actor.ActorRef.NoSendActorRef
-import com.suprnation.actor.ReplyingActor.withReceive
 
 import java.util.UUID
 
@@ -90,6 +89,12 @@ object Actor {
     withReceive(
       Behaviour.ignoringBehaviour(UUID.randomUUID().toString)
     )
+
+  def withReceive[F[+_]: Parallel: Concurrent: Temporal, Request](
+      _receive: PartialFunction[Request, F[Any]]
+  ): Actor[F, Request] = new Actor[F, Request] {
+    override def receive: Receive[F, Request] = _receive
+  }
 
 }
 
@@ -241,10 +246,11 @@ abstract class ReplyingActor[F[+_]: Concurrent: Parallel: Temporal, Request, Res
     */
   def preResume: F[Unit] = Monad[F].unit
 
-  /** Narrow this actor to only allow a subclass of messages to be sent, used when we want to create a view
-    * @tparam U a subclass of Request
-    * @return the narrowed actor
+  /** Widen this actor to allow a more general set of messages to be sent.
+    * @tparam U a superclass of Request
+    * @return the widened actor
     */
-  def narrow[U <: Request]: ReplyingActor[F, U, Response] =
+  def widen[U >: Request]: ReplyingActor[F, U, Response] =
     this.asInstanceOf[ReplyingActor[F, U, Response]]
+
 }
