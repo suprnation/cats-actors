@@ -17,8 +17,8 @@
 package com.suprnation
 
 import cats.Parallel
-import cats.effect.std.Console
-import cats.effect.{Async, Concurrent, Sync, Temporal}
+import cats.effect._
+import cats.effect.std._
 import cats.implicits._
 import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.SupervisorStrategy.Escalate

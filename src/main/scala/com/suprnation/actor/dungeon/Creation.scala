@@ -15,7 +15,7 @@
  */
 
 package com.suprnation.actor.dungeon
-import cats.effect.{Async, Concurrent, Temporal}
+import cats.effect.{Async, Concurrent}
 import cats.implicits._
 import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.ActorRef.NoSendActorRef
@@ -53,8 +53,6 @@ trait Creation[F[+_], Request, Response] {
 
   import Creation._
 
-  implicit val asyncF: Async[F]
-  implicit val temporalF: Temporal[F]
   implicit val creationContext: CreationContext[F, Request, Response]
 
   def create(failure: Option[ActorInitializationException[F]]): F[Unit] = {

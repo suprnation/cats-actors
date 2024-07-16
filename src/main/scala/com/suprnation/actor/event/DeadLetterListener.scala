@@ -18,11 +18,10 @@ package com.suprnation.actor.event
 
 import cats.Parallel
 import cats.effect.{Concurrent, Temporal}
-import com.suprnation.actor.Actor.Actor
-import com.suprnation.actor.ActorLogging
+import com.suprnation.actor.{ActorLogging, ReplyingActor}
 
 case class DeadLetterListener[F[+_]: Parallel: Concurrent: Temporal]()
-    extends Actor[F, Any]
+    extends ReplyingActor[F, Any, Any]
     with ActorLogging[F, Any] {
   override def receive: PartialFunction[Any, F[Unit]] = { case message =>
     log(message)

@@ -67,7 +67,7 @@ object ReplyingActor {
   ): Actor[F, Request] =
     withReceive(Behaviour.ignoringBehaviour(name))
 
-  def withReceive[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
+  private def withReceive[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
       _receive: PartialFunction[Request, F[Response]]
   ): ReplyingActor[F, Request, Response] = new ReplyingActor[F, Request, Response] {
     override def receive: ReplyingReceive[F, Request, Response] = _receive
@@ -112,7 +112,7 @@ abstract class ReplyingActor[F[+_]: Concurrent: Parallel: Temporal, Request, Res
   // We do this because we do not want a Ref for the context to make the DX easier.
   // We also do not want a Ref on self to make the DX easier.
   implicit val context: ActorContext[F, Request, Response] = null
-  final val self: ReplyingActorRef[F, Request, Response] = null
+  val self: ReplyingActorRef[F, Request, Response] = null
   implicit def implicitSelf: Option[ReplyingActorRef[F, Request, Response]] = Option(self)
 
   def init: F[Unit] = Concurrent[F].unit
@@ -149,7 +149,8 @@ abstract class ReplyingActor[F[+_]: Concurrent: Parallel: Temporal, Request, Res
   /** User overridable callback. <p/> Is called when a message isn't handled by the current behaviour of the actor by default it fails with either [[com.suprnation.actor.DeathPactException]] (in case of an unhandled [[com.suprnation.actor.Terminated]] message) or publishes an [[com.suprnation.actor.UnhandledMessage]] to the actor system's event stream.
     */
   def unhandled(message: Any): F[Any] = message match {
-    case Terminated(dead, _) => MonadThrow[F].raiseError(DeathPactException(dead))
+    case Terminated(dead, _) =>
+      MonadThrow[F].raiseError(DeathPactException[F](dead.asInstanceOf[NoSendActorRef[F]]))
     case _ =>
       context.system.eventStream
         .offer(UnhandledMessage(message, context.sender, self).toString)

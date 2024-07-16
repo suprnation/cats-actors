@@ -68,3 +68,5 @@ project/**/metals.sbt
 
 .bsp
 .history
+scala2/target
+scala3/target

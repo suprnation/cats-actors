@@ -16,7 +16,6 @@
 
 package com.suprnation.actor.dungeon
 
-import cats.Parallel
 import cats.effect.std.{Semaphore, Supervisor}
 import cats.effect.{Concurrent, Deferred, Ref}
 import cats.implicits._
@@ -47,9 +46,6 @@ object Children {
 
 trait Children[F[+_], Request, Response] {
   self: ActorCell[F, Request, Response] =>
-
-  implicit val parallelF: Parallel[F]
-  implicit val concurrentF: Concurrent[F]
   implicit val childrenContext: ChildrenContext[F]
 
   def resumeChildren(causedByFailure: Option[Throwable], perp: Option[NoSendActorRef[F]]): F[Unit] =

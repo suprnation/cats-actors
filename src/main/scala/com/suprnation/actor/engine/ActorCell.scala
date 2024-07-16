@@ -18,13 +18,14 @@ package com.suprnation.actor.engine
 
 import cats.Parallel
 import cats.effect._
+import cats.effect.implicits._
 import cats.effect.std.{Console, Supervisor}
-import cats.effect.syntax.all._
 import cats.syntax.all._
 import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor._
 import com.suprnation.actor.dispatch._
+import com.suprnation.actor.dungeon.Dispatch.DispatchContext
 import com.suprnation.actor.dungeon.ReceiveTimeout
 import com.suprnation.actor.event.{Debug, LogEvent}
 import com.suprnation.typelevel.actors.syntax._
@@ -43,7 +44,7 @@ object ActorCell {
     if (uid == undefinedUid) newUid()
     else uid
   }
-  def apply[F[+_]: Parallel: Async: Temporal: Console, Request, Response](
+  def apply[F[+_]: Async: Temporal: Console, Request, Response](
       supervisor: Supervisor[F],
       systemShutdownSignal: Deferred[F, Unit],
       _self: InternalActorRef[F, Request, Response],
@@ -90,7 +91,12 @@ object ActorCell {
         _dispatchContext
 
       override val system: ActorSystem[F] = _actorSystem
-      override var currentMessage: Option[Envelope[F, ?]] = None
+
+      var _currentMessage: Option[com.suprnation.actor.Envelope[F, Any]] =
+        Option.empty[com.suprnation.actor.Envelope[F, Any]]
+
+      override def currentMessage: Option[Envelope[F, Any]] = _currentMessage
+
       var _isIdle: Boolean = true
       val isIdleTrue: F[Unit] = Temporal[F].delay { _isIdle = true }
 
@@ -208,12 +214,12 @@ object ActorCell {
           } { case EnvelopeWithDeferred(envelope, deferred) =>
             Temporal[F].delay {
               _isIdle = false
-              currentMessage = envelope.some
+              _currentMessage = envelope.some
               creationContext.senderOp = envelope.sender
             } >>
               invoke(envelope).map { case (result, success) =>
                 if (success) {
-                  currentMessage = None
+                  _currentMessage = None
                   creationContext.senderOp = None
                 }
                 result
@@ -255,7 +261,7 @@ object ActorCell {
 
       override def clearActorFields(recreate: Boolean): F[Unit] =
         Temporal[F].delay {
-          currentMessage = None
+          _currentMessage = None
           creationContext.behaviourStack.clear()
         }
 
@@ -353,7 +359,15 @@ trait ActorCell[F[+_], Request, Response]
   with ActorRefProvider[F] {
 // format: on
 
-  var currentMessage: Option[Envelope[F, ?]]
+  implicit val concurrentF: Concurrent[F]
+  implicit val asyncF: Async[F]
+  implicit val parallelF: Parallel[F]
+  implicit val temporalF: Temporal[F]
+  implicit val consoleF: Console[F]
+
+  val dispatchContext: DispatchContext[F, Any, Any]
+
+  def currentMessage: Option[Envelope[F, Any]]
 
   def context: F[ActorContext[F, Request, Response]]
 

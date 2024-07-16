@@ -885,7 +885,6 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         eventBuffer,
         deadLetterBuffer
         ) =>
-        ()
         trackedChildren.size should be(1)
         parentMessageBuffer._2.size should be(4)
         parentMessageBuffer._2.toSet should contain.allOf(
@@ -1038,7 +1037,6 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         eventBuffer,
         deadLetterBuffer
         ) =>
-        ()
         trackedChildren.size should be(4)
         parentMessageBuffer._2.size should be(4)
         parentMessageBuffer._2.toSet should contain.allOf(

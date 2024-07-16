@@ -56,9 +56,7 @@ trait FaultHandling[F[+_], Request, Response] {
 
   import FaultHandling._
 
-  implicit val concurrentF: Concurrent[F]
   implicit val faultHandlingContext: FaultHandlingContext[F]
-
   val terminatedChildrenContainer: ChildrenContainer[F] = TerminatedChildrenContainer[F]()
 
   /* =================

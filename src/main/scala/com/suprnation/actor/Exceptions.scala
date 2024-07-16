@@ -120,11 +120,11 @@ final case class PostRestartException[F[+_]](
 
 /** InvalidMessageException is thrown when an invalid message is sent to an Actor; Currently only `null` is an invalid message.
   */
-final case class InvalidMessageException private (message: String) extends AkkaException(message)
+final case class InvalidMessageException(message: String) extends AkkaException(message)
 
 /** A DeathPactException is thrown by an Actor that receives a Terminated(someActor) message that it doesn't handle itself, effectively crashing the Actor and escalating to the supervisor.
   */
-final case class DeathPactException[F[+_]] private (dead: NoSendActorRef[F])
+final case class DeathPactException[F[+_]](dead: NoSendActorRef[F])
     extends AkkaException("Monitored actor [" + dead + "] terminated")
     with NoStackTrace
 

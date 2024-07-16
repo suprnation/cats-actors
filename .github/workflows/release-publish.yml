@@ -3,6 +3,7 @@ name: Publish Package on Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -39,7 +40,26 @@ jobs:
           mkdir -p ~/.sbt/1.0
           echo "credentials += Credentials(\"GitHub Package Registry\", \"maven.pkg.github.com\", \"${{ github.actor }}\", \"${{ secrets.GITHUB_TOKEN }}\")" >> ~/.sbt/1.0/global.sbt
 
-      - name: Build and publish
-        run: sbt clean compile publish
+      - name: Build and publish for Scala 2.13
+        run: |
+          sbt ++2.13.12 clean compile publishM2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish for Scala 2.13
+        run: |
+          sbt ++2.13.12 publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish for Scala 3
+        run: |
+          sbt ++3.3.0 clean compile publishM2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish for Scala 3
+        run: |
+          sbt ++3.3.0 publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

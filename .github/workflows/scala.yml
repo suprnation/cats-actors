@@ -1,8 +1,3 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
 name: Scala CI
 
 on:
@@ -10,6 +5,7 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,17 +19,38 @@ jobs:
       pull-requests: write
       repository-projects: write
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up JDK 11
-      uses: actions/setup-java@v3
-      with:
-        java-version: '11'
-        distribution: 'temurin'
-        cache: 'sbt'
-    - name: Run tests
-      run: sbt test
-      # Optional: This step uploads information to the GitHub dependency graph and unblocking Dependabot alerts for the repository
-    - name: Sbt Dependency Submission
-      uses: scalacenter/sbt-dependency-submission@v3.0.1
+      - uses: actions/checkout@v4
+      - name: Set up JDK 11
+        uses: actions/setup-java@v3
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+          cache: 'sbt'
 
+      - name: Cache sbt
+        uses: actions/cache@v2
+        with:
+          path: ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
 
+      - name: Cache Coursier
+        uses: actions/cache@v2
+        with:
+          path: ~/.coursier
+          key: ${{ runner.os }}-coursier-${{ hashFiles('**/build.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-coursier-
+
+      - name: Run tests for Scala 2.13
+        run: sbt ++2.13.12 clean compile test
+
+      - name: Run tests for Scala 3
+        run: sbt ++3.3.0 clean compile test
+
+      - name: Sbt Dependency Submission for Scala 2.13
+        uses: scalacenter/sbt-dependency-submission@v3.0.1
+
+      - name: Sbt Dependency Submission for Scala 3
+        uses: scalacenter/sbt-dependency-submission@v3.0.1

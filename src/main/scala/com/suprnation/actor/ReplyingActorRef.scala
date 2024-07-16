@@ -19,7 +19,7 @@ package com.suprnation.actor
 import cats.effect._
 import cats.effect.std.{Console, Supervisor}
 import cats.syntax.all._
-import cats.{Monad, Parallel}
+import cats.Monad
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.engine.ActorCell
 
@@ -170,7 +170,7 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
 }
 
 object InternalActorRef {
-  def apply[F[+_]: Parallel: Async: Temporal: Console, Request, Response](
+  def apply[F[+_]: Async: Temporal: Console, Request, Response](
       supervisor: Supervisor[F],
       systemShutdownSignal: Deferred[F, Unit],
       name: String,
@@ -204,7 +204,7 @@ object InternalActorRef {
     } yield localActorRef
 }
 
-case class InternalActorRef[F[+_]: Parallel: Async: Temporal: Console, Request, Response](
+case class InternalActorRef[F[+_]: Async: Temporal: Console, Request, Response](
     supervisor: Supervisor[F],
     systemShutdownSignal: Deferred[F, Unit],
     name: String,

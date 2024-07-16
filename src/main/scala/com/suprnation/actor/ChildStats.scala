@@ -51,8 +51,8 @@ final case class ChildRestartStats[F[+_]](
      */
     val retriesDone = maxNrOfRetriesCount + 1
     val now = System.nanoTime
-    val windowStart =
-      if (restartTimeWindowStartNanos == 0) {
+    val windowStart: Long =
+      if (restartTimeWindowStartNanos == 0L) {
         restartTimeWindowStartNanos = now
         now
       } else restartTimeWindowStartNanos

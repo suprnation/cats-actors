@@ -1,0 +1,3 @@
+install:
+  # Run the publishM2 command for all Scala versions
+  - sbt +publishM2

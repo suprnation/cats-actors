@@ -16,14 +16,12 @@
 
 package com.suprnation.actor.dungeon
 
-import cats.effect.kernel.Concurrent
 import cats.effect.std.Console
 import cats.effect.{Async, Deferred, Temporal}
 import cats.syntax.all._
 import com.suprnation.actor.Exception.Catcher
 import com.suprnation.actor.dispatch._
 import com.suprnation.actor.dispatch.mailbox.{Mailbox, Mailboxes}
-import com.suprnation.actor.dungeon.Dispatch.DispatchContext
 import com.suprnation.actor.engine.ActorCell
 import com.suprnation.actor.event.Error
 import com.suprnation.actor.{Envelope, EnvelopeWithDeferred, SystemMessageEnvelope}
@@ -65,11 +63,6 @@ object Dispatch {
 
 trait Dispatch[F[+_], Request, Response] {
   actorCell: ActorCell[F, Request, Response] =>
-
-  implicit val asyncF: Async[F]
-  implicit val concurrentF: Concurrent[F]
-  implicit val dispatchContext: DispatchContext[F, Any, Any]
-  implicit val consoleF: Console[F]
 
   /** Initialise the cell, i.e. setup the mailboxes and supervision. The UID must be reasonably different from the previous UID of a possible ctor with the same path.
     */

@@ -79,10 +79,6 @@ object ActorContext {
         // Here we will call the parent to handle this..
         _self match {
           case local: InternalActorRef[F, ?, ?] => local.stop
-          case unexpected =>
-            MonadThrow[F].raiseError(
-              new IllegalArgumentException(s"ActorRef is not internal: $unexpected")
-            )
         }
       } else {
         Concurrent[F].raiseError(
@@ -97,41 +93,26 @@ object ActorContext {
       self match {
         case local: InternalActorRef[F, ?, ?] =>
           local.assertCellActiveAndDo(_.watch(actorRef, onTerminated))
-        case unexpected =>
-          MonadThrow[F].raiseError(
-            new IllegalArgumentException(s"ActorRef is not internal: $unexpected")
-          ) // Done for completeness
       }
 
     def unwatch(actorRef: NoSendActorRef[F]): F[NoSendActorRef[F]] =
       self match {
         case local: InternalActorRef[F, ?, ?] =>
           local.assertCellActiveAndDo(_.unwatch(actorRef))
-        case unexpected =>
-          MonadThrow[F].raiseError(
-            new IllegalArgumentException(s"ActorRef is not internal: $unexpected")
-          ) // Done for completeness
       }
 
     override def setReceiveTimeout(timeout: FiniteDuration, onTimeout: => Request): F[Unit] =
       self match {
         case local: InternalActorRef[F, ?, ?] =>
           local.assertCellActiveAndDo(_.setReceiveTimeout(timeout, onTimeout))
-        case unexpected =>
-          MonadThrow[F].raiseError(
-            new IllegalArgumentException(s"ActorRef is not internal: $unexpected")
-          ) // Done for completeness
       }
 
     override val cancelReceiveTimeout: F[Unit] =
-      Temporal[F].delay(self).flatMap {
-        case local: InternalActorRef[F, ?, ?] =>
+      Temporal[F]
+        .delay(self)
+        .flatMap((local: InternalActorRef[F, ?, ?]) =>
           local.assertCellActiveAndDo(_.cancelReceiveTimeout)
-        case unexpected =>
-          MonadThrow[F].raiseError(
-            new IllegalArgumentException(s"ActorRef is not internal: $unexpected")
-          ) // Done for completeness
-      }
+        )
 
     override def replyingActorOf[ChildRequest, ChildResponse](
         props: F[ReplyingActor[F, ChildRequest, ChildResponse]],

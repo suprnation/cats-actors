@@ -16,8 +16,8 @@
 
 package com.suprnation.actor.dungeon
 
+import cats.effect.Ref
 import cats.effect.kernel.Concurrent
-import cats.effect.{Async, Ref}
 import cats.syntax.all._
 import cats.effect.syntax.all._
 import com.suprnation.actor.ActorRef.NoSendActorRef
@@ -50,8 +50,6 @@ trait DeathWatch[F[+_], Request, Response] {
   self: ActorCell[F, Request, Response] =>
 
   val deathWatchContext: DeathWatchContext[F, Request]
-  implicit val concurrentF: Concurrent[F]
-  implicit val asyncF: Async[F]
 
   def isWatching(ref: NoSendActorRef[F]): F[Boolean] =
     deathWatchContext.watchingRef.get.map(_ contains ref)
