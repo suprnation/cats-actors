@@ -1,5 +1,7 @@
 # Cats-Actors
 
+[![Release](https://jitpack.io/v/suprnation/cats-actors.svg)](https://jitpack.io/#suprnation/cats-actors)
+
 Cats-Actors 🐱 is a functional programming-based actor system derived from Akka v2.6.21 🚀️
 
 ![Cats-Actors Logo](images/logo-small.png)
@@ -88,7 +90,7 @@ Add the following to your `build.sbt`:
 ```scala
 resolvers += "jitpack" at "https://jitpack.io"
 
-libraryDependencies += "com.github.suprnation" &% "cats-actors" % "2.0.0-RC2"
+libraryDependencies += "com.github.suprnation.cats-actors" %% "cats-actors" % "2.0.0-RC2"
 ```
 
 #### Using Maven
@@ -108,7 +110,7 @@ Add the following to your `pom.xml`:
 ```xml
 
 <dependency>
-    <groupId>com.github.suprnation</groupId>
+    <groupId>com.github.suprnation.cats-actors</groupId>
     <artifactId>cats-actors_2.13</artifactId>
     or
     <artifactId>cats-actors_3</artifactId>
@@ -126,8 +128,8 @@ Add the following to your `repositories.bzl` and `WORKSPACE` files:
 def load_dependencies():
     maven_install(
         artifacts = [
-            "com.github.suprnation:cats-actors_2_13:2.0.0-RC2", // or
-            "com.github.suprnation:cats-actors_3:2.0.0-RC2",
+            "com.github.suprnation.cats-actors:cats-actors_2_13:2.0.0-RC2", // or
+            "com.github.suprnation.cats-actors:cats-actors_3:2.0.0-RC2",
         ],
         repositories = [
             "https://jitpack.io",
