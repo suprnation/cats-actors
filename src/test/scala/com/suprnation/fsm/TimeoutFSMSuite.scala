@@ -14,52 +14,57 @@ import org.scalatest.matchers.should.Matchers
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
+sealed trait Replies
+case object WakingUp extends Replies
+case object GotNudged extends Replies
+case object StateTimeoutSleep extends Replies
+case object TransitionTimeoutSleep extends Replies
+
 sealed trait TimeoutState
 case object Awake extends TimeoutState
+case object Nudged extends TimeoutState
 case object Asleep extends TimeoutState
 
 sealed trait TimeoutRequest
-case class Sleep(timedOut: Boolean = false) extends TimeoutRequest
+case class StateSleep() extends TimeoutRequest
+case class TransitionSleep() extends TimeoutRequest
 case class Nudge() extends TimeoutRequest
 case class WakeUp(stayAwakeFor: Option[FiniteDuration] = None) extends TimeoutRequest
 
 
 object TimeoutActor {
 
-  def forMaxTimeoutActor(startWith: TimeoutState, timedOutDef: Deferred[IO, Boolean]): IO[Actor[IO, TimeoutRequest]] =
-    FSM[IO, TimeoutState, Deferred[IO, Boolean], TimeoutRequest, Any]
-      .when(Awake) {
-        case (Event(Sleep(timedOut), d), sM) if timedOut =>
-          d.complete(true) *>
-            sM.goto(Asleep).replying(Asleep)
+  def forMaxTimeoutActor(
+                          startWith: TimeoutState,
+                          defaultStateStayAwakeFor: FiniteDuration,
+                          timeOutDef: Deferred[IO, Boolean]
+                        ): IO[Actor[IO, TimeoutRequest]] =
 
-        case (Event(Nudge(), _), sM) => sM.stayAndReply(Nudge)
+    FSM[IO, TimeoutState, Int, TimeoutRequest, Any]
+      .when(Awake, defaultStateStayAwakeFor, StateSleep()) {
+        case (Event(StateSleep(), _), sM) =>
+          timeOutDef.complete(true) *>
+            sM.goto(Asleep).replying(StateTimeoutSleep)
+
+        case (Event(TransitionSleep(), _), sM) =>
+          timeOutDef.complete(true) *>
+            sM.goto(Asleep).replying(TransitionTimeoutSleep)
+
+        case (Event(Nudge(), _), sM) => sM.goto(Nudged).replying(GotNudged)
+      }
+      .when(Nudged) {
+        case (_, sM) => sM.stayAndReply(GotNudged)
       }
       .when(Asleep) {
         case (Event(WakeUp(stayAwakeFor), _), sM) =>
           sM.goto(Awake)
-            .forMax(stayAwakeFor.map((_, Sleep(timedOut = true))))
-            .replying(Awake)
+            .forMax(stayAwakeFor.map((_, TransitionSleep())))
+            .replying(WakingUp)
+
+        case (Event(Nudge(), _), sM) => sM.goto(Nudged).replying(GotNudged)
       }
       .withConfig(FSMConfig.withConsoleInformation)
-      .startWith(startWith, timedOutDef)
-      .initialize
-
-  def stateTimeoutActor(startWith: TimeoutState, stayAwakeFor: FiniteDuration, timedOutDef: Deferred[IO, Boolean]): IO[Actor[IO, TimeoutRequest]] =
-    FSM[IO, TimeoutState, Deferred[IO, Boolean], TimeoutRequest, Any]
-      .when(Awake, stayAwakeFor, Sleep(timedOut = true)) {
-        case (Event(Sleep(timedOut), d), sM) if timedOut =>
-          d.complete(true) *>
-            sM.goto(Asleep).replying(Asleep)
-
-        case (Event(Nudge(), _), sM) => sM.stayAndReply(Nudge)
-      }
-      .when(Asleep) {
-        case (Event(WakeUp(_), _), sM) =>
-          sM.goto(Awake).replying(Awake)
-      }
-      .withConfig(FSMConfig.withConsoleInformation)
-      .startWith(startWith, timedOutDef)
+      .startWith(startWith, 0)
       .initialize
 
 }
@@ -71,8 +76,14 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
 
-      timedOut <- Deferred[IO, Boolean]
-      timeoutActor <- actorSystem.actorOf(TimeoutActor.forMaxTimeoutActor(Asleep, timedOut))
+      timeOutDef <- Deferred[IO, Boolean]
+      timeoutActor <- actorSystem.actorOf(
+        TimeoutActor.forMaxTimeoutActor(
+          Asleep,
+          3.seconds,
+          timeOutDef
+        )
+      )
 
       actor <- actorSystem.actorOf[TimeoutRequest](
         AbsorbReplyActor(timeoutActor, buffer),
@@ -80,11 +91,11 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       )
       _ <- actor ! WakeUp(stayAwakeFor = 2.seconds.some)
 
-      _ <- IO.race(IO.sleep(5.seconds), timedOut.get)
+      _ <- IO.race(IO.sleep(5.seconds), timeOutDef.get)
       _ <- actorSystem.waitForIdle()
       messages <- buffer.get
     } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(Awake, Asleep))
+      messages.toList should be(List(WakingUp, TransitionTimeoutSleep))
     }
   }
 
@@ -93,8 +104,14 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
 
-      timedOut <- Deferred[IO, Boolean]
-      timeoutActor <- actorSystem.actorOf(TimeoutActor.stateTimeoutActor(Asleep, 2.seconds, timedOut))
+      timeOutDef <- Deferred[IO, Boolean]
+      timeoutActor <- actorSystem.actorOf(
+        TimeoutActor.forMaxTimeoutActor(
+          Asleep,
+          3.seconds,
+          timeOutDef
+        )
+      )
 
       actor <- actorSystem.actorOf[TimeoutRequest](
         AbsorbReplyActor(timeoutActor, buffer),
@@ -102,11 +119,39 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       )
       _ <- actor ! WakeUp()
 
-      _ <- IO.race(IO.sleep(5.seconds), timedOut.get)
+      _ <- IO.race(IO.sleep(5.seconds), timeOutDef.get)
       _ <- actorSystem.waitForIdle()
       messages <- buffer.get
     } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(Awake, Asleep))
+      messages.toList should be(List(WakingUp, StateTimeoutSleep))
+    }
+  }
+
+  it should "override state default timeout with the 'forMax' one" in {
+    (for {
+      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
+      buffer <- Ref[IO].of(Vector.empty[Any])
+
+      timeOutDef <- Deferred[IO, Boolean]
+      timeoutActor <- actorSystem.actorOf(
+        TimeoutActor.forMaxTimeoutActor(
+          Asleep,
+          2.seconds,
+          timeOutDef
+        )
+      )
+
+      actor <- actorSystem.actorOf[TimeoutRequest](
+        AbsorbReplyActor(timeoutActor, buffer),
+        "actor"
+      )
+      _ <- actor ! WakeUp(stayAwakeFor = 3.seconds.some)
+
+      _ <- IO.race(IO.sleep(5.seconds), timeOutDef.get)
+      _ <- actorSystem.waitForIdle()
+      messages <- buffer.get
+    } yield messages).unsafeToFuture().map { messages =>
+      messages.toList should be(List(WakingUp, TransitionTimeoutSleep))
     }
   }
 
@@ -115,8 +160,14 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
 
-      timedOut <- Deferred[IO, Boolean]
-      timeoutActor <- actorSystem.actorOf(TimeoutActor.forMaxTimeoutActor(Asleep, timedOut))
+      timeOutDef <- Deferred[IO, Boolean]
+      timeoutActor <- actorSystem.actorOf(
+        TimeoutActor.forMaxTimeoutActor(
+          Asleep,
+          2.seconds,
+          timeOutDef
+        )
+      )
 
       actor <- actorSystem.actorOf[TimeoutRequest](
         AbsorbReplyActor(timeoutActor, buffer),
@@ -126,11 +177,11 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       _ <- actor ! Nudge()
 
       //IO.sleep should win here as the actor's timeout should be cancelled
-      _ <- IO.race(IO.sleep(4.seconds), timedOut.get)
+      _ <- IO.race(IO.sleep(4.seconds), timeOutDef.get)
       _ <- actorSystem.waitForIdle()
       messages <- buffer.get
     } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(Awake, Nudge))
+      messages.toList should be(List(WakingUp, GotNudged))
     }
   }
 
