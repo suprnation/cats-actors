@@ -34,6 +34,9 @@ trait FSMStateSyntax {
     def using(nextStateData: D): F[State[S, D, Request, Response]] =
       sF.map(s => s.using(nextStateData))
 
+    def forMax(duration: Option[(FiniteDuration, Request)]): F[State[S, D, Request, Response]] =
+      sF.map(s => s.forMax(duration))
+
     def withNotification(notifies: Boolean): F[State[S, D, Request, Response]] =
       sF.map(_.withNotification(notifies))
 

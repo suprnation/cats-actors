@@ -344,17 +344,17 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
 
             def processStateTransition(currentState: State[S, D, Request, Response]): F[Unit] =
               (if (currentState.stateName != nextState.stateName || nextState.notifies) {
-                 nextStateRef.set(Some(nextState)) >>
-                   handleTransition(currentState.stateName, nextState.stateName) >>
-                   nextStateRef.set(None)
-               } else Sync[F].unit) >>
+                nextStateRef.set(Some(nextState)) >>
+                  handleTransition(currentState.stateName, nextState.stateName) >>
+                  nextStateRef.set(None)
+              } else Sync[F].unit) >>
                 (if (config.debug) config.transition(currentState, nextState) else Sync[F].unit) >>
                 currentStateRef.set(nextState) >>
-                (currentState.timeout match {
-                  case timeoutData @ Some((d: FiniteDuration, msg)) if d.length >= 0 =>
+                (nextState.timeout match {
+                  case Some((d: FiniteDuration, msg)) if d.length >= 0 =>
                     scheduleTimeout(d -> msg)
                   case _ =>
-                    stateTimeouts(currentState.stateName).fold(Sync[F].unit)(scheduleTimeout)
+                    stateTimeouts(nextState.stateName).fold(Sync[F].unit)(scheduleTimeout)
                 })
 
             stateFunctions.get(nextState.stateName) match {
