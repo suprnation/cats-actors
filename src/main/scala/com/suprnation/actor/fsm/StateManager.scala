@@ -16,9 +16,14 @@
 
 package com.suprnation.actor.fsm
 
+import com.suprnation.actor.MinimalActorContext
+
 import scala.concurrent.duration.FiniteDuration
 
 trait StateManager[F[+_], S, D, Request, Response] {
+
+  def minimalContext: MinimalActorContext[F, Request, Response]
+
   def forMax(timeoutData: Option[(FiniteDuration, Request)]): F[State[S, D, Request, Response]]
 
   def goto(nextStateName: S): F[State[S, D, Request, Response]]

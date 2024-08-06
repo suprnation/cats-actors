@@ -24,7 +24,7 @@ import com.suprnation.actor.Actor.{Actor, ReplyingReceive}
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.fsm.FSM.{Event, StopEvent}
 import com.suprnation.actor.fsm.State.StateTimeoutWithSender
-import com.suprnation.actor.{ActorLogging, ReplyingActor, SupervisionStrategy}
+import com.suprnation.actor.{ActorLogging, MinimalActorContext, ReplyingActor, SupervisionStrategy}
 import com.suprnation.typelevel.actors.syntax.ActorRefSyntaxOps
 import com.suprnation.typelevel.fsm.syntax._
 
@@ -240,6 +240,10 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
           // State manager will allow us to move from state to state.
           val stateManager: StateManager[F, S, D, Request, Response] =
             new StateManager[F, S, D, Request, Response] {
+
+              override def minimalContext: MinimalActorContext[F, Request, Response] =
+                context.asInstanceOf[MinimalActorContext[F, Request, Response]]
+
               override def goto(nextStateName: S): F[State[S, D, Request, Response]] =
                 currentStateRef.get.map(currentState =>
                   State(nextStateName, currentState.stateData)

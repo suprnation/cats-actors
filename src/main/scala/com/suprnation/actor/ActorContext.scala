@@ -155,8 +155,6 @@ trait MinimalActorContext[F[+_], -Request, +Response] extends ActorRefProvider[F
 
   def child(name: String): F[Option[NoSendActorRef[F]]]
 
-  def system: ActorSystem[F]
-
   def sender: Option[NoSendActorRef[F]]
 
   /** Force the child Actor under the given name to terminate after it finishes processing its current message. Nothing happens if the ActorRef is a child that is already stopped.
@@ -212,5 +210,7 @@ trait ActorContext[F[+_], Request, Response]
   def become(behaviour: ReplyingReceive[F, Request, Response], discardOld: Boolean = true): F[Unit]
 
   def unbecome: F[Unit]
+
+  def system: ActorSystem[F]
 
 }
