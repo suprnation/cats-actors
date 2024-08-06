@@ -19,7 +19,8 @@ case object Awake extends TimeoutState
 case object Asleep extends TimeoutState
 
 sealed trait TimeoutRequest
-case class Sleep(timedOut: Boolean) extends TimeoutRequest
+case class Sleep(timedOut: Boolean = false) extends TimeoutRequest
+case class Nudge() extends TimeoutRequest
 case class WakeUp(stayAwakeFor: Option[FiniteDuration] = None) extends TimeoutRequest
 
 
@@ -32,7 +33,7 @@ object TimeoutActor {
           d.complete(true) *>
             sM.goto(Asleep).replying(Asleep)
 
-        case (Event(_, _), sM) => sM.stayAndReply(Awake)
+        case (Event(Nudge(), _), sM) => sM.stayAndReply(Nudge)
       }
       .when(Asleep) {
         case (Event(WakeUp(stayAwakeFor), _), sM) =>
@@ -51,7 +52,7 @@ object TimeoutActor {
           d.complete(true) *>
             sM.goto(Asleep).replying(Asleep)
 
-        case (Event(_, _), sM) => sM.stayAndReply(Awake)
+        case (Event(Nudge(), _), sM) => sM.stayAndReply(Nudge)
       }
       .when(Asleep) {
         case (Event(WakeUp(_), _), sM) =>
@@ -106,6 +107,30 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       messages <- buffer.get
     } yield messages).unsafeToFuture().map { messages =>
       messages.toList should be(List(Awake, Asleep))
+    }
+  }
+
+  it should "not timeout once we move to another state" in {
+    (for {
+      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
+      buffer <- Ref[IO].of(Vector.empty[Any])
+
+      timedOut <- Deferred[IO, Boolean]
+      timeoutActor <- actorSystem.actorOf(TimeoutActor.forMaxTimeoutActor(Asleep, timedOut))
+
+      actor <- actorSystem.actorOf[TimeoutRequest](
+        AbsorbReplyActor(timeoutActor, buffer),
+        "actor"
+      )
+      _ <- actor ! WakeUp(stayAwakeFor = 2.seconds.some)
+      _ <- actor ! Nudge()
+
+      //IO.sleep should win here as the actor's timeout should be cancelled
+      _ <- IO.race(IO.sleep(4.seconds), timedOut.get)
+      _ <- actorSystem.waitForIdle()
+      messages <- buffer.get
+    } yield messages).unsafeToFuture().map { messages =>
+      messages.toList should be(List(Awake, Nudge))
     }
   }
 
