@@ -24,7 +24,7 @@ import scala.concurrent.duration.FiniteDuration
 case class Scheduler[F[+_]: Concurrent](scheduled: Ref[F, Int]) {
 
   def isIdle: F[Boolean] =
-    scheduled.get.map(_ > 0)
+    scheduled.get.map(_ == 0)
 
   /** Schedules a Runnable to be run once with a delay, i.e. a time period that has to pass before the runnable is executed.
     *
@@ -37,7 +37,7 @@ case class Scheduler[F[+_]: Concurrent](scheduled: Ref[F, Int]) {
       temporalEvidence: Temporal[F]
   ): F[A] =
     scheduled.update(_ + 1) >>
-      temporalEvidence.sleep(initialDelay) >> fa <*
+      (temporalEvidence.sleep(initialDelay) >> fa) <*
       scheduled.update(_ - 1)
 
   /** The schedule once here will not wait for the result and will run the result in a fibre.

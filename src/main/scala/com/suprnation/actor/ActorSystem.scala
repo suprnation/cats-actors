@@ -77,7 +77,7 @@ object ActorSystem {
 
       actorSystem <- Resource.eval(
         Ref[F]
-          .of(1)
+          .of(0)
           .map(schedulerCount =>
             new ActorSystem[F] with RootActorCreator[F] {
 
