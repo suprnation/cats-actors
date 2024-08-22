@@ -80,7 +80,7 @@ class ContextFSMSuite extends AsyncFlatSpec with Matchers {
       _ <- actor ! FsmRun
       _ <- actor ! FsmRun
 
-      _ <- IO.race(IO.delay(fail).delayBy(4.seconds), waitForRainDef.get.map(_ should be(true)))
+      _ <- IO.race(IO.delay(fail()).delayBy(4.seconds), waitForRainDef.get.map(_ should be(true)))
       _ <- actorSystem.waitForIdle()
       messages <- buffer.get
     } yield messages).unsafeToFuture().map { messages =>
