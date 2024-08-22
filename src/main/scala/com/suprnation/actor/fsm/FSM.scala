@@ -24,7 +24,7 @@ import com.suprnation.actor.Actor.{Actor, ReplyingReceive}
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.fsm.FSM.{Event, StopEvent}
 import com.suprnation.actor.fsm.State.StateTimeoutWithSender
-import com.suprnation.actor.{ActorLogging, ReplyingActor}
+import com.suprnation.actor.{ActorLogging, ReplyingActor, SupervisionStrategy}
 import com.suprnation.typelevel.actors.syntax.ActorRefSyntaxOps
 import com.suprnation.typelevel.fsm.syntax._
 
@@ -40,7 +40,7 @@ object FSM {
 
   def apply[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
       : FSMBuilder[F, S, D, Request, Response] =
-    new FSMBuilder[F, S, D, Request, Response]()
+    FSMBuilder[F, S, D, Request, Response]()
 
   /** All messages sent to the FSM will be wrapped inside an `Event`, which allows pattern matching to extract both state and data.
     */
@@ -67,13 +67,25 @@ object FSMBuilder {
 
   def apply[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]()
       : FSMBuilder[F, S, D, Request, Response] =
-    new FSMBuilder[F, S, D, Request, Response](
-      FSMConfig(
+    FSMBuilder[F, S, D, Request, Response](
+      config = FSMConfig(
         receive =
           (_: Any, _: Option[NoSendActorRef[F]], _: State[S, D, Request, Response]) => Sync[F].unit,
         transition =
           (_: State[S, D, Request, Response], _: State[S, D, Request, Response]) => Sync[F].unit
-      )
+      ),
+      stateFunctions = Map.empty[S, PartialFunction[
+        (FSM.Event[D, Request], StateManager[F, S, D, Request, Response]),
+        F[State[S, D, Request, Response]]
+      ]],
+      stateTimeouts = Map.empty[S, Option[(FiniteDuration, Request)]],
+      transitionEvent = Nil,
+      terminateEvent = FSM.NullFunction,
+      onTerminationCallback = Option.empty[Reason => F[Unit]],
+      preStart = Async[F].unit,
+      postStop = Async[F].unit,
+      onError = (_: Throwable, _: Option[Any]) => Async[F].unit,
+      supervisorStrategy = None
     )
 
 }
@@ -118,19 +130,19 @@ case class FSMConfig[F[+_], S, D, Request, Response](
 
 // In this version we will separate the description from the execution.
 case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response](
-    config: FSMConfig[F, S, D, Request, Response] = FSMConfig.noDebug[F, S, D, Request, Response],
+    config: FSMConfig[F, S, D, Request, Response],
     stateFunctions: Map[S, PartialFunction[
       (FSM.Event[D, Request], StateManager[F, S, D, Request, Response]),
       F[State[S, D, Request, Response]]
-    ]] = Map.empty[S, PartialFunction[
-      (FSM.Event[D, Request], StateManager[F, S, D, Request, Response]),
-      F[State[S, D, Request, Response]]
     ]],
-    stateTimeouts: Map[S, Option[(FiniteDuration, Request)]] =
-      Map.empty[S, Option[(FiniteDuration, Request)]],
-    transitionEvent: List[PartialFunction[(S, S), F[Unit]]] = Nil,
-    terminateEvent: PartialFunction[StopEvent[S, D], F[Unit]] = FSM.NullFunction,
-    onTerminationCallback: Option[Reason => F[Unit]] = Option.empty[Reason => F[Unit]]
+    stateTimeouts: Map[S, Option[(FiniteDuration, Request)]],
+    transitionEvent: List[PartialFunction[(S, S), F[Unit]]],
+    terminateEvent: PartialFunction[StopEvent[S, D], F[Unit]],
+    onTerminationCallback: Option[Reason => F[Unit]],
+    preStart: F[Unit],
+    postStop: F[Unit],
+    onError: Function2[Throwable, Option[Any], F[Unit]],
+    supervisorStrategy: Option[SupervisionStrategy[F]]
 ) { builderSelf =>
 
   type StateFunction[R] =
@@ -151,22 +163,14 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
       timeout: Timeout
   ): FSMBuilder[F, S, D, Request, Response] =
     if (stateFunctions contains name) {
-      FSMBuilder[F, S, D, Request, Response](
-        config,
-        stateFunctions + (name -> stateFunctions(name).orElse(function)),
-        stateTimeouts + (name -> timeout.orElse(stateTimeouts(name))),
-        transitionEvent,
-        terminateEvent,
-        onTerminationCallback
+      copy(
+        stateFunctions = this.stateFunctions + (name -> stateFunctions(name).orElse(function)),
+        stateTimeouts = this.stateTimeouts + (name -> timeout.orElse(stateTimeouts(name)))
       )
     } else {
-      FSMBuilder[F, S, D, Request, Response](
-        config,
-        stateFunctions + (name -> function),
-        stateTimeouts + (name -> timeout),
-        transitionEvent,
-        terminateEvent,
-        onTerminationCallback
+      copy(
+        stateFunctions = this.stateFunctions + (name -> function),
+        stateTimeouts = this.stateTimeouts + (name -> timeout)
       )
     }
 
@@ -178,35 +182,48 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
   final def onTransition(
       transitionHandler: TransitionHandler
   ): FSMBuilder[F, S, D, Request, Response] =
-    FSMBuilder[F, S, D, Request, Response](
-      config,
-      stateFunctions,
-      stateTimeouts,
-      transitionEvent ++ List(transitionHandler),
-      terminateEvent,
-      onTerminationCallback
+    copy(
+      transitionEvent = this.transitionEvent ++ List(transitionHandler)
     )
 
   def withConfig(
       config: FSMConfig[F, S, D, Request, Response]
   ): FSMBuilder[F, S, D, Request, Response] =
-    FSMBuilder[F, S, D, Request, Response](
-      config,
-      stateFunctions,
-      stateTimeouts,
-      transitionEvent,
-      terminateEvent,
-      onTerminationCallback
+    copy(
+      config = config
     )
 
   def onTermination(onTerminated: Reason => F[Unit]): FSMBuilder[F, S, D, Request, Response] =
-    FSMBuilder[F, S, D, Request, Response](
-      config,
-      stateFunctions,
-      stateTimeouts,
-      transitionEvent,
-      terminateEvent,
+    copy(
       onTerminationCallback = Option(onTerminated)
+    )
+
+  def withPreStart(
+    preStart: F[Unit]
+  ): FSMBuilder[F, S, D, Request, Response] =
+    copy(
+      preStart = preStart
+    )
+
+  def withPostStop(
+    postStop: F[Unit]
+  ): FSMBuilder[F, S, D, Request, Response] =
+    copy(
+      postStop = postStop
+    )
+
+  def onActorError(
+    onError: Function2[Throwable, Option[Any], F[Unit]]
+  ): FSMBuilder[F, S, D, Request, Response] =
+    copy(
+      onError = onError
+    )
+
+  def withSupervisorStrategy(
+    supervisorStrategy: SupervisionStrategy[F]
+  ): FSMBuilder[F, S, D, Request, Response] =
+    copy(
+      supervisorStrategy = supervisorStrategy.some
     )
 
   final def startWith(stateName: S, stateData: D, timeout: Timeout = None): PreCompiledFSM = {
@@ -233,7 +250,7 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
                   .withNotification(false)
 
               override def stop(reason: Reason): F[State[S, D, Request, Response]] =
-                currentStateRef.get >>= (currentState => stop(Normal, currentState.stateData))
+                currentStateRef.get >>= (currentState => stop(reason, currentState.stateData))
 
               override def stop(reason: Reason, stateData: D): F[State[S, D, Request, Response]] =
                 stay().using(stateData).withStopReason(reason)
@@ -264,7 +281,7 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
             } yield currentState
           }
 
-          override def preStart: F[Unit] = currentStateRef.get >>= makeTransition
+          override def preStart: F[Unit] = builderSelf.preStart >> (currentStateRef.get >>= makeTransition)
 
           override def receive: ReplyingReceive[F, Any, Any] = {
             case TimeoutMarker(gen, sender, msg) =>
@@ -381,7 +398,7 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
             onTerminationCallback.fold(Sync[F].unit)(x => x(reason))
 
           override def postStop: F[Unit] =
-            (stateManager.stay().withStopReason(Shutdown) >>= terminate) >> super.postStop
+            (stateManager.stay().withStopReason(Shutdown) >>= terminate) >> builderSelf.postStop >> super.postStop
 
           private def terminate(nextState: State[S, D, Request, Response]): F[Unit] =
             for {
@@ -398,6 +415,11 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
                 }
               }(_ => Sync[F].unit)
             } yield ()
+
+          override def supervisorStrategy: SupervisionStrategy[F] = builderSelf.supervisorStrategy.getOrElse(super.supervisorStrategy)
+
+          override def onError(reason: Throwable, message: Option[Any]): F[Unit] = builderSelf.onError(reason, message)
+
         }).asInstanceOf[ReplyingActor[F, Request, Response]]
       }
     }
