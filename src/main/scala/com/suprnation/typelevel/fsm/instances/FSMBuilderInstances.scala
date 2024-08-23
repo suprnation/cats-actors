@@ -39,24 +39,29 @@ trait FSMBuilderInstances {
           x.terminateEvent(msg) >> y.terminateEvent(msg)
         }
 
-        val terminationCallback: Option[Reason => F[Unit]] = (x.onTerminationCallback, y.onTerminationCallback) match {
-          case (None, None) => None
-          case (l, None) => l
-          case (None, r) => r
-          case (Some(l), Some(r)) => Some((reason: Reason) => l(reason) >> r(reason))
-        }
+        val terminationCallback: Option[Reason => F[Unit]] =
+          (x.onTerminationCallback, y.onTerminationCallback) match {
+            case (None, None)       => None
+            case (l, None)          => l
+            case (None, r)          => r
+            case (Some(l), Some(r)) => Some((reason: Reason) => l(reason) >> r(reason))
+          }
 
-        val onError: Function2[Throwable, Option[Any], F[Unit]] = (t: Throwable, message: Option[Any]) =>
-        x.onError(t, message) >> y.onError(t, message)
+        val onError: Function2[Throwable, Option[Any], F[Unit]] =
+          (t: Throwable, message: Option[Any]) => x.onError(t, message) >> y.onError(t, message)
 
-        val supervision: Option[SupervisionStrategy[F]] = (x.supervisorStrategy, y.supervisorStrategy) match {
-          case (None, None) => None
-          case (l, None) => l
-          case (None, r) => r
-          case (Some(l), Some(r)) => // No straightforward way to combine potentially arbitrary supervision strategies
-            // We override with the latest
-            Some(r)
-        }
+        val supervision: Option[SupervisionStrategy[F]] =
+          (x.supervisorStrategy, y.supervisorStrategy) match {
+            case (None, None) => None
+            case (l, None)    => l
+            case (None, r)    => r
+            case (
+                  Some(l),
+                  Some(r)
+                ) => // No straightforward way to combine potentially arbitrary supervision strategies
+              // We override with the latest
+              Some(r)
+          }
 
         FSMBuilder[F, S, D, Request, Response](
           config = FSMConfig[F, S, D, Request, Response](
@@ -66,8 +71,8 @@ trait FSMBuilderInstances {
               Async[F].whenA(y.config.debug)(y.config.receive(event, sender, state))
             },
             (oldState: State[S, D, Request, Response], newState: State[S, D, Request, Response]) =>
-            Async[F].whenA(x.config.debug)(x.config.transition(oldState, newState)) >>
-                 Async[F].whenA(y.config.debug)(y.config.transition(oldState, newState))
+              Async[F].whenA(x.config.debug)(x.config.transition(oldState, newState)) >>
+                Async[F].whenA(y.config.debug)(y.config.transition(oldState, newState))
           ),
           stateFunctions = x.stateFunctions ++ y.stateFunctions,
           stateTimeouts = x.stateTimeouts ++ y.stateTimeouts,

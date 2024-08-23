@@ -90,7 +90,7 @@ Add the following to your `build.sbt`:
 ```scala
 resolvers += "jitpack" at "https://jitpack.io"
 
-libraryDependencies += "com.github.suprnation.cats-actors" %% "cats-actors" % "2.0.0-RC3"
+libraryDependencies += "com.github.suprnation.cats-actors" %% "cats-actors" % "2.0.0-RC4"
 ```
 
 #### Using Maven
@@ -114,7 +114,7 @@ Add the following to your `pom.xml`:
     <artifactId>cats-actors_2.13</artifactId>
     or
     <artifactId>cats-actors_3</artifactId>
-    <version>2.0.0-RC3</version>
+    <version>2.0.0-RC4</version>
 </dependency>
 ```
 
@@ -128,8 +128,8 @@ Add the following to your `repositories.bzl` and `WORKSPACE` files:
 def load_dependencies():
     maven_install(
         artifacts = [
-            "com.github.suprnation.cats-actors:cats-actors_2_13:2.0.0-RC3", // or
-            "com.github.suprnation.cats-actors:cats-actors_3:2.0.0-RC3",
+            "com.github.suprnation.cats-actors:cats-actors_2_13:2.0.0-RC4", // or
+            "com.github.suprnation.cats-actors:cats-actors_3:2.0.0-RC4",
         ],
         repositories = [
             "https://jitpack.io",
