@@ -39,19 +39,19 @@ object ContextFSMSuite {
       stopped: Deferred[IO, Boolean]
   ): IO[ReplyingActor[IO, FsmRequest, Any]] =
     FSM[IO, FsmParentState, Int, FsmRequest, Any]
-      .when(FsmIdle) { case (Event(FsmRun, _), sM) =>
+      .when(FsmIdle)(sM => { case Event(FsmRun, _) =>
         for {
           fsmChildActor <- sM.minimalContext.actorOf(FsmChild())
           result <- fsmChildActor ? FsmChildEcho
           state <- sM.goto(FsmRunning).replying(result)
         } yield state
-      }
-      .when(FsmRunning) {
-        case (Event(FsmRun, _), sM) =>
+      })
+      .when(FsmRunning)(sM => {
+        case Event(FsmRun, _) =>
           (sM.minimalContext.self ! FsmStop) *> sM.stay()
-        case (Event(FsmStop, _), sM) =>
+        case Event(FsmStop, _) =>
           stopped.complete(true) *> sM.stay()
-      }
+      })
       .withConfig(FSMConfig.withConsoleInformation)
       .startWith(startWith, 0)
       .initialize
