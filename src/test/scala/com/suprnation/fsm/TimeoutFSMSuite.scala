@@ -31,38 +31,34 @@ case class TransitionSleep() extends TimeoutRequest
 case class Nudge() extends TimeoutRequest
 case class WakeUp(stayAwakeFor: Option[FiniteDuration] = None) extends TimeoutRequest
 
-
 object TimeoutActor {
 
   def forMaxTimeoutActor(
-                          startWith: TimeoutState,
-                          defaultStateStayAwakeFor: FiniteDuration,
-                          timeOutDef: Deferred[IO, Boolean]
-                        ): IO[Actor[IO, TimeoutRequest]] =
-
+      startWith: TimeoutState,
+      defaultStateStayAwakeFor: FiniteDuration,
+      timeOutDef: Deferred[IO, Boolean]
+  ): IO[Actor[IO, TimeoutRequest]] =
     FSM[IO, TimeoutState, Int, TimeoutRequest, Any]
-      .when(Awake, defaultStateStayAwakeFor, StateSleep()) {
-        case (Event(StateSleep(), _), sM) =>
+      .when(Awake, defaultStateStayAwakeFor, StateSleep())(sM => {
+        case Event(StateSleep(), _) =>
           timeOutDef.complete(true) *>
             sM.goto(Asleep).replying(StateTimeoutSleep)
 
-        case (Event(TransitionSleep(), _), sM) =>
+        case Event(TransitionSleep(), _) =>
           timeOutDef.complete(true) *>
             sM.goto(Asleep).replying(TransitionTimeoutSleep)
 
-        case (Event(Nudge(), _), sM) => sM.goto(Nudged).replying(GotNudged)
-      }
-      .when(Nudged) {
-        case (_, sM) => sM.stayAndReply(GotNudged)
-      }
-      .when(Asleep) {
-        case (Event(WakeUp(stayAwakeFor), _), sM) =>
+        case Event(Nudge(), _) => sM.goto(Nudged).replying(GotNudged)
+      })
+      .when(Nudged)(sM => _ => sM.stayAndReply(GotNudged))
+      .when(Asleep)(sM => {
+        case Event(WakeUp(stayAwakeFor), _) =>
           sM.goto(Awake)
             .forMax(stayAwakeFor.map((_, TransitionSleep())))
             .replying(WakingUp)
 
-        case (Event(Nudge(), _), sM) => sM.goto(Nudged).replying(GotNudged)
-      }
+        case Event(Nudge(), _) => sM.goto(Nudged).replying(GotNudged)
+      })
       .withConfig(FSMConfig.withConsoleInformation)
       .startWith(startWith, 0)
       .initialize
@@ -176,7 +172,7 @@ class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
       _ <- actor ! WakeUp(stayAwakeFor = 2.seconds.some)
       _ <- actor ! Nudge()
 
-      //IO.sleep should win here as the actor's timeout should be cancelled
+      // IO.sleep should win here as the actor's timeout should be cancelled
       _ <- IO.race(IO.sleep(4.seconds), timeOutDef.get)
       _ <- actorSystem.waitForIdle()
       messages <- buffer.get

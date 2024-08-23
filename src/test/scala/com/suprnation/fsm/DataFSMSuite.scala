@@ -20,16 +20,16 @@ case object CurrentState extends PeanoNumber
 
 object PeanoNumbers {
   val peanoNumbers: IO[ReplyingActor[IO, PeanoNumber, Int]] =
-    when[IO, PeanoState, Int, PeanoNumber, Int](Forever) {
-      case (Event(Zero, data), sM: StateManager[IO, PeanoState, Int, PeanoNumber, Int]) =>
+    when[IO, PeanoState, Int, PeanoNumber, Int](Forever)(sM => {
+      case Event(Zero, data) =>
         sM.stayAndReply(data)
 
-      case (Event(Succ, data), sM: StateManager[IO, PeanoState, Int, PeanoNumber, Int]) =>
+      case Event(Succ, data) =>
         sM.stay().using(data + 1).replying(data + 1)
 
-      case (Event(CurrentState, data), sM: StateManager[IO, PeanoState, Int, PeanoNumber, Int]) =>
+      case Event(CurrentState, data) =>
         sM.stayAndReply(data)
-    }
+    })
       //      .withConfig(FSMConfig.withConsoleInformation)
       .startWith(Forever, 0)
       .initialize

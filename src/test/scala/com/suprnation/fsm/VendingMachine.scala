@@ -58,7 +58,7 @@ object VendingMachine {
           currentInventory.updated(product, currentInventory(product).copy(amount = newInventory))
         )
 
-      idleState: SF = { case (Event(SelectProduct(product), Uninitialized()), sM: SM) =>
+      idleState: SF = sM => { case Event(SelectProduct(product), Uninitialized()) =>
         productAvailable(product).flatMap {
           case Some(p) =>
             sM.goto(AwaitingPayment)
@@ -69,9 +69,9 @@ object VendingMachine {
         }
       }
 
-      awaitingPaymentState: SF = {
+      awaitingPaymentState: SF = sM => {
         // Customer has initiated settling the money
-        case (Event(InsertMoney(amount), ReadyData(product, price, inventory)), sM: SM) =>
+        case Event(InsertMoney(amount), ReadyData(product, price, inventory)) =>
           if (amount >= price) {
             sM.goto(Dispensing)
               .using(TransactionData(product, price, amount, inventory))
@@ -84,12 +84,9 @@ object VendingMachine {
           }
 
         // Customer has insert some money prior
-        case (
-              Event(
-                InsertMoney(amount),
-                TransactionData(product, price, alreadyInsertedAmount, inventory)
-              ),
-              sM: SM
+        case Event(
+              InsertMoney(amount),
+              TransactionData(product, price, alreadyInsertedAmount, inventory)
             ) =>
           // Total price has been fulfilled
           if (amount + alreadyInsertedAmount >= price) {
@@ -103,25 +100,19 @@ object VendingMachine {
           }
 
         // Customer has timed out, we need to give back the money if the customer inserted some.
-        case (
-              Event(StateTimeout, _),
-              sM: StateManager[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
-            ) =>
+        case Event(StateTimeout, _) =>
           sM.goto(Idle).using(Uninitialized()).replying(Timeout)
       }
 
-      dispensingState: SF = {
-        case (
-              Event(Dispense, TransactionData(product, price, insertedAmount, inventory)),
-              sM: SM
-            ) =>
+      dispensingState: SF = sM => {
+        case Event(Dispense, TransactionData(product, price, insertedAmount, inventory)) =>
           (updateInventory(product, inventory - 1) >>
             sM.goto(Idle))
             .using(Uninitialized())
             .replying(Change(product, insertedAmount, insertedAmount - price))
       }
 
-      outOfStockState: SF = { case (Event(_, _), sM: SM) => // Just an example to handle this state.
+      outOfStockState: SF = sM => { case Event(_, _) => // Just an example to handle this state.
         sM.goto(Idle).using(Uninitialized()).replying(ProductOutOfStock)
       }
 
