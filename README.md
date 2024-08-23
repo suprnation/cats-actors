@@ -2109,16 +2109,16 @@ object ExampleFSMApp extends IOApp {
   override def run(args: List[String]): IO[ExitCode] = {
     val fsm: IO[Actor[IO, Request]] = FSM[IO, State, Data, Request, Any]
       .withConfig(FSMConfig.withConsoleInformation[IO, State, Data, Request, Any])
-      .when(Idle) { case (FSM.Event(Start, data), stateManager) =>
+      .when(Idle) (stateManager => { case FSM.Event(Start, data) =>
         for {
           newState <- stateManager.goto(Active)
         } yield newState.using(data.copy(counter = data.counter + 1))
-      }
-      .when(Active) { case (FSM.Event(Stop, data), stateManager) =>
+      })
+      .when(Active) (stateManager => { case FSM.Event(Stop, data) =>
         for {
           newState <- stateManager.goto(Idle)
         } yield newState.using(data.copy(counter = data.counter + 1))
-      }
+      })
       .onTransition {
         case (Idle, Active) => IO.println("Transitioning from Idle to Active")
         case (Active, Idle) => IO.println("Transitioning from Active to Idle")

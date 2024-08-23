@@ -26,39 +26,39 @@ case object Push extends Input
 object Turnstile {
   val turnstileReplyingActorUsingFsmBuilder: IO[Actor[IO, Input]] =
     FSMBuilder[IO, State, Unit, Input, Any]()
-      .when(Locked) { case (Event(Coin, _), sM) =>
+      .when(Locked)(sM => { case Event(Coin, _) =>
         sM.goto(Unlocked).replying(Unlocked)
-      }
-      .when(Unlocked) { case (Event(Push, _), sM) =>
+      })
+      .when(Unlocked)(sM => { case Event(Push, _) =>
         sM.goto(Locked)
           .using(())
           .replying(Locked)
-      }
+      })
       .withConfig(FSMConfig.withConsoleInformation)
       .startWith(Locked, ())
       .initialize
 
   val turnstileReplyingActorUsingWhenSyntaxDirectly: IO[Actor[IO, Input]] =
-    when[IO, State, Unit, Input, Any](Locked) { case (Event(Coin, _), sM) =>
+    when[IO, State, Unit, Input, Any](Locked)(sM => { case Event(Coin, _) =>
       sM.goto(Unlocked).replying(Unlocked)
-    }
-      .when(Unlocked) { case (Event(Push, _), sM) =>
+    })
+      .when(Unlocked)(sM => { case Event(Push, _) =>
         sM.goto(Locked).using(()).replying(Locked)
-      }
+      })
       .withConfig(FSMConfig.withConsoleInformation)
       .startWith(Locked, ())
       .initialize
 
   val turnstileReplyingActorUsingSemigroupConstruction: IO[Actor[IO, Input]] =
     (
-      when[IO, State, Unit, Input, Any](Locked) { case (Event(Coin, _), sM) =>
+      when[IO, State, Unit, Input, Any](Locked)(sM => { case Event(Coin, _) =>
         sM.goto(Unlocked).replying(Unlocked)
-      } |+|
-        when[IO, State, Unit, Input, Any](Unlocked) { case (Event(Push, _), sM) =>
+      }) |+|
+        when[IO, State, Unit, Input, Any](Unlocked)(sM => { case Event(Push, _) =>
           sM.goto(Locked)
             .using(())
             .replying(Locked)
-        }
+        })
     )
       .withConfig(FSMConfig.withConsoleInformation)
       .startWith(Locked, ())
