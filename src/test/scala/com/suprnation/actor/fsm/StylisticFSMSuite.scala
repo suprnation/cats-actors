@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
 import cats.implicits._
 import com.suprnation.actor.ActorSystem
 import com.suprnation.actor.fsm.FSM.Event
-import com.suprnation.actor.fsm.{FSMBuilder, FSMConfig}
 import com.suprnation.typelevel.actors.syntax.ActorSystemDebugOps
 import com.suprnation.typelevel.fsm.instances._
 import com.suprnation.typelevel.fsm.syntax._
@@ -30,9 +29,9 @@ import org.scalatest.matchers.should.Matchers
 import com.suprnation.actor.ReplyingActor
 
 // Define states
-sealed trait State
-case object Locked extends State
-case object Unlocked extends State
+sealed trait TState
+case object Locked extends TState
+case object Unlocked extends TState
 
 // Define messages
 sealed trait Input
@@ -40,8 +39,8 @@ case object Coin extends Input
 case object Push extends Input
 
 object Turnstile {
-  val turnstileReplyingActorUsingFsmBuilder: IO[ReplyingActor[IO, Input, List[State]]] =
-    FSMBuilder[IO, State, Unit, Input, List[State]]()
+  val turnstileReplyingActorUsingFsmBuilder: IO[ReplyingActor[IO, Input, List[TState]]] =
+    FSMBuilder[IO, TState, Unit, Input, List[TState]]()
       .when(Locked)(sM => { case Event(Coin, _) =>
         sM.goto(Unlocked).returning(List(Unlocked))
       })
@@ -54,8 +53,8 @@ object Turnstile {
       .startWith(Locked, ())
       .initialize
 
-  val turnstileReplyingActorUsingWhenSyntaxDirectly: IO[ReplyingActor[IO, Input, List[State]]] =
-    when[IO, State, Unit, Input, List[State]](Locked)(sM => { case Event(Coin, _) =>
+  val turnstileReplyingActorUsingWhenSyntaxDirectly: IO[ReplyingActor[IO, Input, List[TState]]] =
+    when[IO, TState, Unit, Input, List[TState]](Locked)(sM => { case Event(Coin, _) =>
       sM.goto(Unlocked).returning(List(Unlocked))
     })
       .when(Unlocked)(sM => { case Event(Push, _) =>
@@ -65,12 +64,12 @@ object Turnstile {
       .startWith(Locked, ())
       .initialize
 
-  val turnstileReplyingActorUsingSemigroupConstruction: IO[ReplyingActor[IO, Input, List[State]]] =
+  val turnstileReplyingActorUsingSemigroupConstruction: IO[ReplyingActor[IO, Input, List[TState]]] =
     (
-      when[IO, State, Unit, Input, List[State]](Locked)(sM => { case Event(Coin, _) =>
+      when[IO, TState, Unit, Input, List[TState]](Locked)(sM => { case Event(Coin, _) =>
         sM.goto(Unlocked).returning(List(Unlocked))
       }) |+|
-        when[IO, State, Unit, Input, List[State]](Unlocked)(sM => { case Event(Push, _) =>
+        when[IO, TState, Unit, Input, List[TState]](Unlocked)(sM => { case Event(Push, _) =>
           sM.goto(Locked)
             .using(())
             .returning(List(Locked))

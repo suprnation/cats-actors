@@ -47,4 +47,12 @@ trait StateManager[F[+_], S, D, Request, Response] {
   ): F[State[S, D, Request, Response]]
 
   def stayAndReturn(replyValue: Response): F[State[S, D, Request, Response]]
+
+  def startSingleTimer(name: String, msg: Request, delay: FiniteDuration): F[Unit]
+
+  def startTimerWithFixedDelay(name: String, msg: Request, delay: FiniteDuration): F[Unit]
+
+  def cancelTimer(name: String): F[Unit]
+
+  def isTimerActive(name: String): F[Boolean]
 }

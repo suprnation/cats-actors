@@ -14,13 +14,12 @@
  * limitations under the License.
  */
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.Monoid
 import cats.effect.{IO, Ref}
 import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.fsm.FSM.Event
-import com.suprnation.actor.fsm.State.StateTimeout
 import com.suprnation.actor.fsm.{FSM, StateManager}
 import com.suprnation.typelevel.fsm.syntax._
 
@@ -133,7 +132,7 @@ object VendingMachine {
           }
 
         // Customer has timed out, we need to give back the money if the customer inserted some.
-        case Event(StateTimeout, _) =>
+        case Event(AwaitingUserTimeout, _) =>
           sM.goto(Idle).using(Uninitialized()).returning(Timeout)
       }
 

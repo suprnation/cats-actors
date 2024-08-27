@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}

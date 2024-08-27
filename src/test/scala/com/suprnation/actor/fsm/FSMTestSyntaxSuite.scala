@@ -1,5 +1,5 @@
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global

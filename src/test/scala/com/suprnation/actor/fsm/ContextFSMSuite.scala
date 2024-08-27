@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Deferred, IO, Ref}
 import cats.implicits.catsSyntaxApplicativeId
-import com.suprnation.fsm.ContextFSMSuite._
+import com.suprnation.actor.fsm.ContextFSMSuite._
 import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.fsm.{FSM, FSMConfig}
