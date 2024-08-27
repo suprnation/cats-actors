@@ -39,12 +39,13 @@ trait FSMBuilderInstances {
           x.terminateEvent(msg) >> y.terminateEvent(msg)
         }
 
-        val terminationCallback: Option[Reason => F[Unit]] =
+        val terminationCallback: Option[(Reason, D) => F[Unit]] =
           (x.onTerminationCallback, y.onTerminationCallback) match {
-            case (None, None)       => None
-            case (l, None)          => l
-            case (None, r)          => r
-            case (Some(l), Some(r)) => Some((reason: Reason) => l(reason) >> r(reason))
+            case (None, None) => None
+            case (l, None)    => l
+            case (None, r)    => r
+            case (Some(l), Some(r)) =>
+              Some((reason: Reason, stateData: D) => l(reason, stateData) >> r(reason, stateData))
           }
 
         val onError: Function2[Throwable, Option[Any], F[Unit]] =

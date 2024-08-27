@@ -3,6 +3,7 @@ package com.suprnation.fsm
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Deferred, IO, Ref}
 import cats.implicits.catsSyntaxApplicativeId
+import com.suprnation.fsm.ContextFSMSuite._
 import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.fsm.{FSM, FSMConfig}
@@ -14,25 +15,25 @@ import org.scalatest.matchers.should.Matchers
 
 import scala.concurrent.duration.DurationInt
 
-sealed trait FsmParentState
-case object FsmIdle extends FsmParentState
-case object FsmRunning extends FsmParentState
-
-sealed trait FsmRequest
-case object FsmRun extends FsmRequest
-case object FsmStop extends FsmRequest
-
-sealed trait FsmChildRequest
-case object FsmChildEcho extends FsmChildRequest
-
-case class FsmChild() extends Actor[IO, FsmChildRequest] {
-
-  override def receive: Receive[IO, FsmChildRequest] = { case FsmChildEcho =>
-    FsmChildEcho.pure[IO]
-  }
-}
-
 object ContextFSMSuite {
+
+  private[ContextFSMSuite] sealed trait FsmParentState
+  private[ContextFSMSuite] case object FsmIdle extends FsmParentState
+  private[ContextFSMSuite] case object FsmRunning extends FsmParentState
+
+  private[ContextFSMSuite] sealed trait FsmRequest
+  private[ContextFSMSuite] case object FsmRun extends FsmRequest
+  private[ContextFSMSuite] case object FsmStop extends FsmRequest
+
+  private[ContextFSMSuite] sealed trait FsmChildRequest
+  private[ContextFSMSuite] case object FsmChildEcho extends FsmChildRequest
+
+  private[ContextFSMSuite] case class FsmChild() extends Actor[IO, FsmChildRequest] {
+
+    override def receive: Receive[IO, FsmChildRequest] = { case FsmChildEcho =>
+      FsmChildEcho.pure[IO]
+    }
+  }
 
   def actor(
       startWith: FsmParentState,
@@ -65,22 +66,22 @@ class ContextFSMSuite extends AsyncFlatSpec with Matchers {
       actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
       buffer <- Ref[IO].of(Vector.empty[Any])
 
-      waitForRainDef <- Deferred[IO, Boolean]
-      weatherActor <- actorSystem.actorOf(
+      stoppedRef <- Deferred[IO, Boolean]
+      fsmActor <- actorSystem.actorOf(
         ContextFSMSuite.actor(
           startWith = FsmIdle,
-          waitForRainDef
+          stoppedRef
         )
       )
       actor <- actorSystem.actorOf[FsmRequest](
-        AbsorbReplyActor(weatherActor, buffer),
+        AbsorbReplyActor(fsmActor, buffer),
         "actor"
       )
 
       _ <- actor ! FsmRun
       _ <- actor ! FsmRun
 
-      _ <- IO.race(IO.delay(fail()).delayBy(4.seconds), waitForRainDef.get.map(_ should be(true)))
+      _ <- IO.race(IO.delay(fail()).delayBy(4.seconds), stoppedRef.get.map(_ should be(true)))
       _ <- actorSystem.waitForIdle()
       messages <- buffer.get
     } yield messages).unsafeToFuture().map { messages =>
