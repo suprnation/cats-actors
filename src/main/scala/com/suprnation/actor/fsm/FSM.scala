@@ -81,7 +81,7 @@ object FSMBuilder {
       stateTimeouts = Map.empty[S, Option[(FiniteDuration, Request)]],
       transitionEvent = Nil,
       terminateEvent = FSM.NullFunction,
-      onTerminationCallback = Option.empty[Reason => F[Unit]],
+      onTerminationCallback = Option.empty[(Reason, D) => F[Unit]],
       preStart = Async[F].unit,
       postStop = Async[F].unit,
       onError = (_: Throwable, _: Option[Any]) => Async[F].unit,
@@ -138,7 +138,7 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
     stateTimeouts: Map[S, Option[(FiniteDuration, Request)]],
     transitionEvent: List[PartialFunction[(S, S), F[Unit]]],
     terminateEvent: PartialFunction[StopEvent[S, D], F[Unit]],
-    onTerminationCallback: Option[Reason => F[Unit]],
+    onTerminationCallback: Option[(Reason, D) => F[Unit]],
     preStart: F[Unit],
     postStop: F[Unit],
     onError: Function2[Throwable, Option[Any], F[Unit]],
@@ -195,7 +195,7 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
       config = config
     )
 
-  def onTermination(onTerminated: Reason => F[Unit]): FSMBuilder[F, S, D, Request, Response] =
+  def onTermination(onTerminated: (Reason, D) => F[Unit]): FSMBuilder[F, S, D, Request, Response] =
     copy(
       onTerminationCallback = Option(onTerminated)
     )
@@ -341,7 +341,7 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
               }
 
               _ <- applyState(state)
-            } yield ()
+            } yield state.replies
 
           private def applyState(nextState: State[S, D, Request, Response]): F[Unit] =
             nextState.stopReason match {
@@ -401,8 +401,8 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
 
           }
 
-          protected def onTerminated(reason: Reason): F[Unit] =
-            onTerminationCallback.fold(Sync[F].unit)(x => x(reason))
+          protected def onTerminated(reason: Reason, stateData: D): F[Unit] =
+            onTerminationCallback.fold(Sync[F].unit)(x => x(reason, stateData))
 
           override def postStop: F[Unit] =
             (stateManager
@@ -416,9 +416,9 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
                 nextState.stopReason.fold(Sync[F].unit) { reason =>
                   for {
                     _ <- cancelTimeout
-                    _ <- onTerminated(reason)
+                    _ <- onTerminated(reason, nextState.stateData)
                     _ <- currentStateRef.set(nextState)
-                    stopEvent = StopEvent(reason, currentState.stateName, currentState.stateData)
+                    stopEvent = StopEvent(reason, nextState.stateName, nextState.stateData)
                     _ <- terminateEvent.lift(stopEvent).getOrElse(Sync[F].unit)
                   } yield ()
                 }
