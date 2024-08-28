@@ -2088,8 +2088,7 @@ Next, define the FSM using the `FSMBuilder` and include debugging support with `
 ```scala
 import cats.effect._
 import cats.implicits._
-import com.suprnation.actor.Actor.Actor
-import com.suprnation.actor.ActorSystem
+import com.suprnation.actor.{ActorSystem, ReplyingActor}
 import com.suprnation.actor.fsm._
 
 object ExampleFSMApp extends IOApp {
@@ -2107,7 +2106,7 @@ object ExampleFSMApp extends IOApp {
   case class Data(counter: Int)
 
   override def run(args: List[String]): IO[ExitCode] = {
-    val fsm: IO[Actor[IO, Request]] = FSM[IO, State, Data, Request, Any]
+    val fsm: IO[ReplyingActor[IO, Request, List[Any]]] = FSM[IO, State, Data, Request, Any]
       .withConfig(FSMConfig.withConsoleInformation[IO, State, Data, Request, Any])
       .when(Idle) (stateManager => { case FSM.Event(Start, data) =>
         for {
@@ -2128,7 +2127,7 @@ object ExampleFSMApp extends IOApp {
 
     ActorSystem[IO]("example-fsm-system").use { system =>
       for {
-        fsmActor <- system.actorOf[Request](fsm)
+        fsmActor <- system.replyingActorOf[Request, List[Any]](fsm)
         _ <- fsmActor ! Start
         _ <- fsmActor ! Stop
         _ <- fsmActor ! Start
