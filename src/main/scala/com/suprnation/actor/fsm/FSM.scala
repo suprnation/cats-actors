@@ -106,7 +106,9 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
       override def stateData: F[D] = currentStateRef.get.map(_.stateData)
 
       override def goto(nextStateName: S): F[State[S, D, Request, Response]] =
-        currentStateRef.get.map(currentState => State(nextStateName, currentState.stateData))
+        currentStateRef.get.map(currentState =>
+          State(nextStateName, currentState.stateData)
+        )
 
       override def stay(): F[State[S, D, Request, Response]] =
         (currentStateRef.get >>= (currentState => goto(currentState.stateName)))
@@ -119,7 +121,7 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
         stay().using(stateData).withStopReason(reason)
 
       override def forMax(
-          finiteDuration: Option[(FiniteDuration, Request)]
+        finiteDuration: Option[(FiniteDuration, Request)]
       ): F[State[S, D, Request, Response]] =
         stay().map(_.forMax(finiteDuration))
 
@@ -127,164 +129,158 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
         stay().map(_.replying(replyValue))
     }
 
-  private def cancelTimeout: F[Unit] =
-    timeoutFiberRef.get.flatMap(_.fold(Sync[F].unit)(_.cancel))
+          private def cancelTimeout: F[Unit] =
+            timeoutFiberRef.get.flatMap(_.fold(Sync[F].unit)(_.cancel))
 
-  private def handleTransition(prev: S, next: S): F[Unit] =
-    transitionEvent.collect {
-      case te if te.isDefinedAt((prev, next)) => te((prev, next))
-    }.sequence_
+          private def handleTransition(prev: S, next: S): F[Unit] =
+            transitionEvent.collect {
+              case te if te.isDefinedAt((prev, next)) => te((prev, next))
+            }.sequence_
 
-  private val handleEvent: StateFunction[Any] = _ => { case Event(value, _) =>
-    for {
-      currentState <- currentStateRef.get
-      _ <- log(
-        s"[Warning] unhandled [Event $value] [State: ${currentState.stateName}] [Data: ${currentState.stateData}]"
-      )
-    } yield currentState
-  }
-
-  override def preStart: F[Unit] =
-    customPreStart >> (currentStateRef.get >>= makeTransition)
-
-  override def receive: ReplyingReceive[F, Any, Any] = {
-    case TimeoutMarker(gen, sender, msg) =>
-      generationRef.get
-        .map(_ == gen)
-        .ifM(
-          processMsg(StateTimeoutWithSender(sender, msg), "state timeout"),
-          Sync[F].unit
-        )
-
-    case value =>
-      cancelTimeout >> generationRef.update(_ + 1) >> processMsg(value, sender)
-  }
-
-  private def processMsg(value: Any, source: AnyRef): F[Any] =
-    currentStateRef.get >>= (currentState =>
-      (if (config.debug) config.receive(value, sender, currentState) else Sync[F].unit)
-        >> processEvent(Event(value, currentState.stateData), source)
-    )
-
-  private def processEvent(event: FSM.Event[D, Any], @unused source: AnyRef): F[Any] =
-    for {
-      currentState <- currentStateRef.get
-      stateFunc = stateFunctions(currentState.stateName)
-      // If this is a Timeout event we will set the original sender on the cell so that the user can reply to the original sender.
-      state <- event.event match {
-        case StateTimeoutWithSender(sender, msg) =>
-          /* The StateTimeoutWithSender was only used to propagate the sender information, the actual user does not need to understand these
-           * semantics. */
-          // We will simplify the message to the SenderTimeout, the sender will be implicit on the cell.
-          val updatedEvent: FSM.Event[D, Request] =
-            event.copy(event = msg.asInstanceOf[Request])
-          /* Override the sender to be the same sender as the original state (we might want to notify him that something happened in the
-           * timeout) */
-          (self.cell >>= (c =>
-            Async[F]
-              .delay(c.creationContext.senderOp = sender.asInstanceOf[Option[ActorRef[F, Nothing]]])
-          )) >>
-            stateFunc(stateManager)
-              .lift(updatedEvent)
-              .getOrElse(
-                handleEvent(stateManager)(updatedEvent.asInstanceOf[FSM.Event[D, Any]])
+          private val handleEvent: StateFunction[Any] = _ => { case Event(value, _) =>
+            for {
+              currentState <- currentStateRef.get
+              _ <- log(
+                s"[Warning] unhandled [Event $value] [State: ${currentState.stateName}] [Data: ${currentState.stateData}]"
               )
-        case _ =>
-          stateFunc(stateManager)
-            .lift(event.asInstanceOf[Event[D, Request]])
-            .getOrElse(handleEvent(stateManager)(event))
-      }
+            } yield currentState
+          }
 
-      _ <- applyState(state)
-    } yield state.replies
+          override def preStart: F[Unit] =
+            customPreStart >> (currentStateRef.get >>= makeTransition)
 
-  private def applyState(nextState: State[S, D, Request, Response]): F[Unit] =
-    nextState.stopReason match {
-      case None =>
-        makeTransition(nextState)
+          override def receive: ReplyingReceive[F, Any, Any] = {
+            case TimeoutMarker(gen, sender, msg) =>
+              generationRef.get
+                .map(_ == gen)
+                .ifM(
+                  processMsg(StateTimeoutWithSender(sender, msg), "state timeout"),
+                  Sync[F].unit
+                )
 
-      case Some(_) =>
-        val sendReplies: F[Unit] =
-          nextState.replies.reverse.traverse_(r => sender.get.widenRequest[Response] ! r)
-        sendReplies >> terminate(nextState) >> context.stop(self)
-    }
+            case value =>
+              cancelTimeout >> generationRef.update(_ + 1) >> processMsg(value, sender)
+          }
 
-  private def makeTransition(nextState: State[S, D, Request, Response]): F[Unit] = {
-    def scheduleTimeout(timeoutData: (FiniteDuration, Request)): F[Unit] =
-      cancelTimeout >>
-        (for {
-          generation <- generationRef.get
-          currentSender = sender
-          cancelFn <- context.system.scheduler.scheduleOnce_(timeoutData._1)(
-            self !* TimeoutMarker[F, Request](generation, currentSender, timeoutData._2)
-          )
-          _ <- timeoutFiberRef.set(Some(cancelFn))
-        } yield ())
+          private def processMsg(value: Any, source: AnyRef): F[List[Response]] =
+            currentStateRef.get >>= (currentState =>
+              (if (config.debug) config.receive(value, sender, currentState) else Sync[F].unit)
+                >> processEvent(Event(value, currentState.stateData), source)
+            )
 
-    def processStateTransition(currentState: State[S, D, Request, Response]): F[Unit] =
-      (if (currentState.stateName != nextState.stateName || nextState.notifies) {
-         nextStateRef.set(Some(nextState)) >>
-           handleTransition(currentState.stateName, nextState.stateName) >>
-           nextStateRef.set(None)
-       } else Sync[F].unit) >>
-        (if (config.debug) config.transition(currentState, nextState) else Sync[F].unit) >>
-        currentStateRef.set(nextState) >>
-        (nextState.timeout match {
-          case Some((d: FiniteDuration, msg)) if d.length >= 0 =>
-            scheduleTimeout(d -> msg)
-          case _ =>
-            stateTimeouts(nextState.stateName).fold(Sync[F].unit)(scheduleTimeout)
-        })
+          private def processEvent(
+              event: FSM.Event[D, Any],
+              @unused source: AnyRef
+          ): F[List[Response]] =
+            for {
+              currentState <- currentStateRef.get
+              stateFunc = stateFunctions(currentState.stateName)
+              // If this is a Timeout event we will set the original sender on the cell so that the user can reply to the original sender.
+              state <- event.event match {
+                case StateTimeoutWithSender(sender, msg) =>
+                  /* The StateTimeoutWithSender was only used to propagate the sender information, the actual user does not need to understand these
+                   * semantics. */
+                  // We will simplify the message to the SenderTimeout, the sender will be implicit on the cell.
+                  val updatedEvent: FSM.Event[D, Request] =
+                    event.copy(event = msg.asInstanceOf[Request])
+                  /* Override the sender to be the same sender as the original state (we might want to notify him that something happened in the
+                   * timeout) */
+                  (self.cell >>= (c =>
+                    Async[F]
+                      .delay(c.creationContext.senderOp =
+                        sender.asInstanceOf[Option[ActorRef[F, Nothing]]]
+                      )
+                  )) >>
+                    stateFunc(stateManager)
+                      .lift(updatedEvent)
+                      .getOrElse(
+                        handleEvent(stateManager)(updatedEvent.asInstanceOf[FSM.Event[D, Any]])
+                      )
+                case _ =>
+                  stateFunc(stateManager)
+                    .lift(event.asInstanceOf[Event[D, Request]])
+                    .getOrElse(handleEvent(stateManager)(event))
+              }
 
-    stateFunctions.get(nextState.stateName) match {
-      case None =>
-        val errorMessage = s"Next state ${nextState.stateName} does not exist"
-        stateManager.stay().withStopReason(Failure(errorMessage)) >>= terminate
+              replies <- applyState(state)
+            } yield replies
 
-      case Some(_) =>
-        // If the sender is not not specified (e.g. if you are running directly from an application) we will ignore it to be safe.
-        nextState.replies.reverse.traverse_(r =>
-          sender.fold(Sync[F].unit)(sender =>
-            {
-              // The sender knew that we could send him the Response so this is totally safe.
-              sender.widenRequest[Response] ! r
-            }.void
-          )
-        ) >>
-          currentStateRef.get.flatMap(processStateTransition)
-    }
+          private def applyState(nextState: State[S, D, Request, Response]): F[List[Response]] =
+            (nextState.stopReason match {
+              case None =>
+                makeTransition(nextState)
 
-  }
+              case Some(_) =>
+                terminate(nextState) >> context.stop(self)
+            }) >> nextState.replies.pure[F]
 
-  private def onTerminated(reason: Reason, stateData: D): F[Unit] =
-    onTerminationCallback.fold(Sync[F].unit)(x => x(reason, stateData))
+          def makeTransition(nextState: State[S, D, Request, Response]): F[Unit] = {
+            def scheduleTimeout(timeoutData: (FiniteDuration, Request)): F[Unit] =
+              cancelTimeout >>
+                (for {
+                  generation <- generationRef.get
+                  currentSender = sender
+                  cancelFn <- context.system.scheduler.scheduleOnce_(timeoutData._1)(
+                    self !* TimeoutMarker[F, Request](generation, currentSender, timeoutData._2)
+                  )
+                  _ <- timeoutFiberRef.set(Some(cancelFn))
+                } yield ())
 
-  override def postStop: F[Unit] =
-    (stateManager
-      .stay()
-      .withStopReason(Shutdown) >>= terminate) >> customPostStop >> super.postStop
+            def processStateTransition(currentState: State[S, D, Request, Response]): F[Unit] =
+              (if (currentState.stateName != nextState.stateName || nextState.notifies) {
+                 nextStateRef.set(Some(nextState)) >>
+                   handleTransition(currentState.stateName, nextState.stateName) >>
+                   nextStateRef.set(None)
+               } else Sync[F].unit) >>
+                (if (config.debug) config.transition(currentState, nextState) else Sync[F].unit) >>
+                currentStateRef.set(nextState) >>
+                (nextState.timeout match {
+                  case Some((d: FiniteDuration, msg)) if d.length >= 0 =>
+                    scheduleTimeout(d -> msg)
+                  case _ =>
+                    stateTimeouts(nextState.stateName).fold(Sync[F].unit)(scheduleTimeout)
+                })
 
-  private def terminate(nextState: State[S, D, Request, Response]): F[Unit] =
-    for {
-      currentState <- currentStateRef.get
-      _ <- currentState.stopReason.fold {
-        nextState.stopReason.fold(Sync[F].unit) { reason =>
-          for {
-            _ <- cancelTimeout
-            _ <- onTerminated(reason, nextState.stateData)
-            _ <- currentStateRef.set(nextState)
-            stopEvent = StopEvent(reason, nextState.stateName, nextState.stateData)
-            _ <- terminateEvent.lift(stopEvent).getOrElse(Sync[F].unit)
-          } yield ()
-        }
-      }(_ => Sync[F].unit)
-    } yield ()
+            stateFunctions.get(nextState.stateName) match {
+              case None =>
+                val errorMessage = s"Next state ${nextState.stateName} does not exist"
+                stateManager.stay().withStopReason(Failure(errorMessage)) >>= terminate
 
-  override def supervisorStrategy: SupervisionStrategy[F] =
-    customSupervisorStrategy.getOrElse(super.supervisorStrategy)
+              case Some(_) =>
+                currentStateRef.get.flatMap(processStateTransition)
+            }
 
-  override def onError(reason: Throwable, message: Option[Any]): F[Unit] =
-    customOnError(reason, message)
+          }
+
+          protected def onTerminated(reason: Reason, stateData: D): F[Unit] =
+            onTerminationCallback.fold(Sync[F].unit)(x => x(reason, stateData))
+
+          override def postStop: F[Unit] =
+            (stateManager
+              .stay()
+              .withStopReason(Shutdown) >>= terminate) >> customPostStop >> super.postStop
+
+          private def terminate(nextState: State[S, D, Request, Response]): F[Unit] =
+            for {
+              currentState <- currentStateRef.get
+              _ <- currentState.stopReason.fold {
+                nextState.stopReason.fold(Sync[F].unit) { reason =>
+                  for {
+                    _ <- cancelTimeout
+                    _ <- onTerminated(reason, nextState.stateData)
+                    _ <- currentStateRef.set(nextState)
+                    stopEvent = StopEvent(reason, nextState.stateName, nextState.stateData)
+                    _ <- terminateEvent.lift(stopEvent).getOrElse(Sync[F].unit)
+                  } yield ()
+                }
+              }(_ => Sync[F].unit)
+            } yield ()
+
+          override def supervisorStrategy: SupervisionStrategy[F] =
+            customSupervisorStrategy.getOrElse(super.supervisorStrategy)
+
+          override def onError(reason: Throwable, message: Option[Any]): F[Unit] =
+            customOnError(reason, message)
 
 }
 
@@ -417,7 +413,7 @@ case class FSMBuilder[F[+_]: Parallel: Async, S, D, Request, Response](
 
   final def startWith(stateName: S, stateData: D, timeout: Timeout = None): PreCompiledFSM =
     new PreCompiledFSM { preCompiledSelf =>
-      override def initialize: F[ReplyingActor[F, Request, Response]] = for {
+      override def initialize: F[ReplyingActor[F, Request, List[Response]]] = for {
         currentState <- Ref.of[F, State[S, D, Request, Response]](
           State(stateName, stateData, timeout)
         )
@@ -450,11 +446,11 @@ case class FSMBuilder[F[+_]: Parallel: Async, S, D, Request, Response](
         override protected val generationRef: Ref[F, Int] = generation
         override protected val timeoutFiberRef: Ref[F, Option[Fiber[F, Throwable, Unit]]] =
           timeoutFiber
-      }.asInstanceOf[ReplyingActor[F, Request, Response]]
+      }.asInstanceOf[ReplyingActor[F, Request, List[Response]]]
     }
 
   trait PreCompiledFSM {
-    def initialize: F[ReplyingActor[F, Request, Response]]
+    def initialize: F[ReplyingActor[F, Request, List[Response]]]
   }
 
 }

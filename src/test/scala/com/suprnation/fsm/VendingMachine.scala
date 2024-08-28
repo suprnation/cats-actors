@@ -1,7 +1,7 @@
 package com.suprnation.fsm
 
 import cats.effect.{IO, Ref}
-import com.suprnation.actor.Actor.Actor
+import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.fsm.State.StateTimeout
 import com.suprnation.actor.fsm.{FSM, StateManager}
@@ -20,8 +20,8 @@ case object Dispense extends VendingRequest
 case object AwaitingUserTimeout extends VendingRequest
 
 sealed trait VendingResponse
-case object ProductOutOfStock
-case class RemainingMoney(amount: Double)
+case object ProductOutOfStock extends VendingResponse
+case class RemainingMoney(amount: Double) extends VendingResponse
 case object Timeout extends VendingResponse
 case class Change(product: String, inserted: Double, change: Double) extends VendingResponse
 case object PressDispense extends VendingResponse
@@ -41,9 +41,18 @@ case class TransactionData(product: String, price: Double, insertedAmount: Doubl
     extends VendingMachineData
 
 object VendingMachine {
-  def vendingMachine(_inventory: Item*): IO[Actor[IO, VendingRequest]] = {
-    type SM = StateManager[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
-    type SF = FSM.StateFunction[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
+  def vendingMachine(
+      _inventory: Item*
+  ): IO[ReplyingActor[IO, VendingRequest, List[VendingResponse]]] = {
+    type SM =
+      StateManager[IO, VendingMachineState, VendingMachineData, VendingRequest, VendingResponse]
+    type SF = FSM.StateFunction[
+      IO,
+      VendingMachineState,
+      VendingMachineData,
+      VendingRequest,
+      VendingResponse
+    ]
     for {
       inventory <- Ref[IO].of(_inventory.map(x => x.name -> x).toMap)
       productAvailable = (product: String) =>
@@ -117,7 +126,13 @@ object VendingMachine {
       }
 
       // Putting it all together...
-      vendingMachine <- FSM[IO, VendingMachineState, VendingMachineData, VendingRequest, Any]
+      vendingMachine <- FSM[
+        IO,
+        VendingMachineState,
+        VendingMachineData,
+        VendingRequest,
+        VendingResponse
+      ]
         .when(Idle)(idleState)
         .when(AwaitingPayment, stateTimeout = 1.seconds, onTimeout = AwaitingUserTimeout)(
           awaitingPaymentState

@@ -2,6 +2,7 @@ package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
+import cats.implicits._
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.fsm.StateManager
 import com.suprnation.actor.{ActorSystem, ReplyingActor}
@@ -19,7 +20,7 @@ case object Succ extends PeanoNumber
 case object CurrentState extends PeanoNumber
 
 object PeanoNumbers {
-  val peanoNumbers: IO[ReplyingActor[IO, PeanoNumber, Int]] =
+  val peanoNumbers: IO[ReplyingActor[IO, PeanoNumber, List[Int]]] =
     when[IO, PeanoState, Int, PeanoNumber, Int](Forever)(sM => {
       case Event(Zero, data) =>
         sM.stayAndReply(data)
@@ -37,42 +38,40 @@ object PeanoNumbers {
 
 class DataFSMSuite extends AsyncFlatSpec with Matchers {
   it should "update state data" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-      buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.replyingActorOf(PeanoNumbers.peanoNumbers)
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          peanoNumberActor <- actorSystem.replyingActorOf(PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
-        AbsorbReplyActor(peanoNumber, buffer),
-        "peano-number-absorb-actor"
-      )
-      _ <- peanoNumberActor ! Zero
-      _ <- peanoNumberActor ! Succ
-      _ <- peanoNumberActor ! Succ
-      _ <- peanoNumberActor ! Succ
-      _ <- actorSystem.waitForIdle()
-      messages <- buffer.get
-    } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(0, 1, 2, 3))
-    }
+          responses <- List(
+            peanoNumberActor ? Zero,
+            peanoNumberActor ? Succ,
+            peanoNumberActor ? Succ,
+            peanoNumberActor ? Succ
+          ).flatSequence
+          _ <- actorSystem.waitForIdle()
+        } yield responses
+      }
+      .unsafeToFuture()
+      .map { messages =>
+        messages should be(List(0, 1, 2, 3))
+      }
   }
 
   it should "update state data for very large states" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-      buffer <- Ref[IO].of(Vector.empty[Any])
-      peanoNumber <- actorSystem.replyingActorOf(PeanoNumbers.peanoNumbers)
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          peanoNumberActor <- actorSystem.replyingActorOf(PeanoNumbers.peanoNumbers)
 
-      peanoNumberActor <- actorSystem.actorOf[PeanoNumber](
-        AbsorbReplyActor(peanoNumber, buffer),
-        "peano-number-absorb-actor"
-      )
-      _ <- peanoNumberActor ! Zero
-      _ <- (peanoNumberActor ! Succ).replicateA(10000)
-      _ <- actorSystem.waitForIdle()
-      messages <- buffer.get
-    } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(Range.inclusive(0, 10000).toList)
-    }
+          r0 <- peanoNumberActor ? Zero
+          r1 <- (peanoNumberActor ? Succ).replicateA(10000)
+          _ <- actorSystem.waitForIdle()
+        } yield r0 ++ r1.flatten
+      }
+      .unsafeToFuture()
+      .map { messages =>
+        messages.toList should be(Range.inclusive(0, 10000).toList)
+      }
   }
 }

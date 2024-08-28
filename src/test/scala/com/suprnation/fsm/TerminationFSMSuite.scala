@@ -23,7 +23,7 @@ object TerminationFSMSuite {
   def actor(
       startWith: FsmState,
       stopped: Deferred[IO, Int]
-  ): IO[ReplyingActor[IO, FsmRequest, Any]] =
+  ): IO[ReplyingActor[IO, FsmRequest, List[Any]]] =
     FSM[IO, FsmState, Int, FsmRequest, Any]
       .when(FsmIdle)(sM => { case Event(FsmStop, _) =>
         sM.stop(Normal, 0)
@@ -42,24 +42,27 @@ object TerminationFSMSuite {
 class TerminationFSMSuite extends AsyncFlatSpec with Matchers {
 
   it should "create child actor and send a message to self" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          stoppedDef <- Deferred[IO, Int]
+          actor <- actorSystem.replyingActorOf(
+            TerminationFSMSuite.actor(
+              startWith = FsmIdle,
+              stoppedDef
+            )
+          )
 
-      stoppedDef <- Deferred[IO, Int]
-      actor <- actorSystem.actorOf(
-        TerminationFSMSuite.actor(
-          startWith = FsmIdle,
-          stoppedDef
-        )
-      )
+          _ <- actor ! FsmStop
 
-      _ <- actor ! FsmStop
-
-      fsmExitCode <- IO.race(IO.pure(-1).delayBy(4.seconds), stoppedDef.get)
-      _ <- actorSystem.waitForIdle()
-    } yield fsmExitCode).unsafeToFuture().map { fsmExitCode =>
-      fsmExitCode should be(Right(0))
-    }
+          fsmExitCode <- IO.race(IO.pure(-1).delayBy(4.seconds), stoppedDef.get)
+          _ <- actorSystem.waitForIdle()
+        } yield fsmExitCode
+      }
+      .unsafeToFuture()
+      .map { fsmExitCode =>
+        fsmExitCode should be(Right(0))
+      }
   }
 
 }
