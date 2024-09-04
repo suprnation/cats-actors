@@ -64,11 +64,13 @@ object Dispatch {
 trait Dispatch[F[+_], Request, Response] {
   actorCell: ActorCell[F, Request, Response] =>
 
-  /** Initialise the cell, i.e. setup the mailboxes and supervision. The UID must be reasonably different from the previous UID of a possible ctor with the same path.
+  /** Initialise the cell, i.e. setup the mailboxes and supervision. The UID must be reasonably different from the previous UID of a possible actor with the same path.
     */
   def init(sendSupervise: Boolean): F[Unit] =
     for {
-      _ <- create(None)
+      _ <- create(None).recoverWith { case NonFatal(e) =>
+        handleInvokeFailure(Nil, e)
+      }
       _ <-
         if (sendSupervise) {
           parent.internalActorRef.flatMap(internal =>

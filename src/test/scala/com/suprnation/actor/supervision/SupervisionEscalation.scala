@@ -8,9 +8,15 @@ import com.suprnation.actor.ActorRef.ActorRef
 import com.suprnation.actor.SupervisorStrategy.Escalate
 import com.suprnation.actor._
 import com.suprnation.actor.debug.TrackingActor
-import com.suprnation.actor.supervision.SupervisionEscalation.{ChildActor, GrandParent, ParentActor, ThrowingTantrumActor}
+import com.suprnation.actor.supervision.SupervisionEscalation.{
+  ChildActor,
+  GrandParent,
+  ParentActor,
+  ThrowingTantrumActor
+}
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
+import org.scalatest.matchers.must.Matchers.convertToAnyMustWrapper
 import org.scalatest.matchers.should.Matchers
 
 import scala.collection.immutable.HashMap
@@ -225,4 +231,26 @@ class SupervisionEscalation extends AsyncFlatSpec with Matchers {
       1 should be(1)
     }
   }
+
+  it should "terminate the Actor System when an ActorInitializationException is thrown with default supervision" in {
+    ActorSystem[IO]()
+      .use(actorSystem =>
+        actorSystem
+          .replyingActorOf(
+            new Actor[IO, String] {
+              override def preStart: IO[Unit] = IO.raiseError(new RuntimeException("Don't start"))
+            },
+            "robot"
+          )
+          .map(_ => succeed)
+          .recover { case _ =>
+            fail("replyingActorOf should never throw an ActorInitializationException")
+          }
+      )
+      .recover { case exception: ActorInitializationException[IO] =>
+        exception.cause mustBe a[RuntimeException]
+      }
+      .unsafeToFuture()
+  }
+
 }
