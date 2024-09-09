@@ -246,6 +246,10 @@ case class FSMBuilder[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
               override def minimalContext: MinimalActorContext[F, Request, Response] =
                 context.asInstanceOf[MinimalActorContext[F, Request, Response]]
 
+              override def stateName: F[S] = currentStateRef.get.map(_.stateName)
+
+              override def stateData: F[D] = currentStateRef.get.map(_.stateData)
+
               override def goto(nextStateName: S): F[State[S, D, Request, Response]] =
                 currentStateRef.get.map(currentState =>
                   State(nextStateName, currentState.stateData)

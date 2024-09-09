@@ -24,6 +24,10 @@ trait StateManager[F[+_], S, D, Request, Response] {
 
   def minimalContext: MinimalActorContext[F, Request, Response]
 
+  def stateName: F[S]
+
+  def stateData: F[D]
+
   def forMax(timeoutData: Option[(FiniteDuration, Request)]): F[State[S, D, Request, Response]]
 
   def goto(nextStateName: S): F[State[S, D, Request, Response]]
