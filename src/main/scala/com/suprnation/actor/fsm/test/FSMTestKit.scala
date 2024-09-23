@@ -16,11 +16,11 @@
 
 package com.suprnation.actor.fsm.test
 
-import cats.Functor
+import cats.{Functor, Monoid}
 import cats.implicits._
 import com.suprnation.actor.fsm.{FSM, State}
 
-case class FSMTestKit[F[+_]: Functor, S, D, Request, Response](
+case class FSMTestKit[F[+_]: Functor, S, D, Request, Response : Monoid](
     private val fsm: FSM[F, S, D, Request, Response]
 ) {
 

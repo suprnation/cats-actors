@@ -225,16 +225,18 @@ case class InternalActorRef[F[+_]: Async: Temporal: Console, Request, Response](
   val start: F[Fiber[F, Throwable, Unit]] = assertCellActiveAndDo(actorCell => actorCell.start)
   val stop: F[Unit] = assertCellActiveAndDo(actorCell => actorCell.stop)
 
-  def ?(fa: => Request)(implicit sender: Option[NoSendActorRef[F]] = None): F[Response] = (this ?* fa).map(_.asInstanceOf[Response])
+  def ?(fa: => Request)(implicit sender: Option[NoSendActorRef[F]] = None): F[Response] =
+    (this ?* fa).map(_.asInstanceOf[Response])
 
-  def ?*(fa: => Any)(implicit sender: Option[NoSendActorRef[F]] = None): F[Any] = assertCellActiveAndDo[Any](actorCell =>
-    for {
-      // Here we need to add the logic not to push to the queue anymore if it shutdown...
-      deferred <- Deferred[F, Any]
-      _ <- actorCell.sendMessage(Envelope(fa, sender, receiver), Option(deferred))
-      result <- deferred.get
-    } yield result
-  )
+  def ?*(fa: => Any)(implicit sender: Option[NoSendActorRef[F]] = None): F[Any] =
+    assertCellActiveAndDo[Any](actorCell =>
+      for {
+        // Here we need to add the logic not to push to the queue anymore if it shutdown...
+        deferred <- Deferred[F, Any]
+        _ <- actorCell.sendMessage(Envelope(fa, sender, receiver), Option(deferred))
+        result <- deferred.get
+      } yield result
+    )
 
   /** Send a system message.
     */

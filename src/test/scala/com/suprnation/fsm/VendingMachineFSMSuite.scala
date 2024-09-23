@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
@@ -28,8 +44,8 @@ class VendingMachineFSMSuite extends AsyncFlatSpec with Matchers {
         } yield response
       }
       .unsafeToFuture()
-      .map { case messages =>
-        messages should contain(RemainingMoney(1.00))
+      .map { case message =>
+        message should be(RemainingMoney(1.00))
       }
   }
 
@@ -59,7 +75,7 @@ class VendingMachineFSMSuite extends AsyncFlatSpec with Matchers {
             vendingMachine ? InsertMoney(1.00),
             vendingMachine ? InsertMoney(1.00),
             vendingMachine ? Dispense
-          ).flatSequence
+          ).sequence
           _ <- actorSystem.waitForIdle()
         } yield messages
       }
@@ -93,7 +109,7 @@ class VendingMachineFSMSuite extends AsyncFlatSpec with Matchers {
     ActorSystem[IO]("FSM Actor")
       .use { actorSystem =>
         for {
-          vendingMachine <- actorSystem.replyingActorOf[VendingRequest, List[VendingResponse]](
+          vendingMachine <- actorSystem.replyingActorOf[VendingRequest, VendingResponse](
             VendingMachine.vendingMachine(
               Item("pizza", 0, 10.00)
             ),
@@ -105,8 +121,8 @@ class VendingMachineFSMSuite extends AsyncFlatSpec with Matchers {
         } yield response
       }
       .unsafeToFuture()
-      .map { case messages =>
-        messages should contain(
+      .map { case message =>
+        message should be(
           // This message has moved to the awaiting payment state
           ProductOutOfStock
         )

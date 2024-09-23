@@ -16,11 +16,11 @@
 
 package com.suprnation.actor
 
-import com.suprnation.actor.Actor.Actor
+import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.event.Debug
 
 trait ActorLogging[F[+_], Request] {
-  this: Actor[F, Request] =>
+  this: ReplyingActor[F, Request, ?] =>
   def log(msg: Any): F[Unit] = context.system.eventStream.offer(
     Debug(
       s"[Path: ${context.self.path}] [Name:${context.self.path.name}]",

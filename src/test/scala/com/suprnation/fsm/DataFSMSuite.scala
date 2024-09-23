@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
@@ -21,15 +37,15 @@ case object CurrentState extends PeanoNumber
 
 object PeanoNumbers {
   val peanoNumbers: IO[ReplyingActor[IO, PeanoNumber, List[Int]]] =
-    when[IO, PeanoState, Int, PeanoNumber, Int](Forever)(sM => {
+    when[IO, PeanoState, Int, PeanoNumber, List[Int]](Forever)(sM => {
       case Event(Zero, data) =>
-        sM.stayAndReply(data)
+        sM.stayAndReturn(List(data))
 
       case Event(Succ, data) =>
-        sM.stay().using(data + 1).replying(data + 1)
+        sM.stay().using(data + 1).returning(List(data + 1))
 
       case Event(CurrentState, data) =>
-        sM.stayAndReply(data)
+        sM.stayAndReturn(List(data))
     })
       //      .withConfig(FSMConfig.withConsoleInformation)
       .startWith(Forever, 0)

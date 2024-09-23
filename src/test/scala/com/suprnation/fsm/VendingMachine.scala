@@ -1,5 +1,22 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.fsm
 
+import cats.Monoid
 import cats.effect.{IO, Ref}
 import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.fsm.FSM.Event
@@ -19,7 +36,14 @@ case class InsertMoney(amount: Double) extends VendingRequest
 case object Dispense extends VendingRequest
 case object AwaitingUserTimeout extends VendingRequest
 
+object VendingResponse {
+  implicit val vendingResponseMonoid: Monoid[VendingResponse] = new Monoid[VendingResponse] {
+    override val empty: VendingResponse = NullVendingResponse
+    override def combine(l: VendingResponse, r: VendingResponse): VendingResponse = r
+  }
+}
 sealed trait VendingResponse
+case object NullVendingResponse extends VendingResponse
 case object ProductOutOfStock extends VendingResponse
 case class RemainingMoney(amount: Double) extends VendingResponse
 case object Timeout extends VendingResponse
@@ -43,7 +67,7 @@ case class TransactionData(product: String, price: Double, insertedAmount: Doubl
 object VendingMachine {
   def vendingMachine(
       _inventory: Item*
-  ): IO[ReplyingActor[IO, VendingRequest, List[VendingResponse]]] = {
+  ): IO[ReplyingActor[IO, VendingRequest, VendingResponse]] = {
     type SM =
       StateManager[IO, VendingMachineState, VendingMachineData, VendingRequest, VendingResponse]
     type SF = FSM.StateFunction[
@@ -72,9 +96,9 @@ object VendingMachine {
           case Some(p) =>
             sM.goto(AwaitingPayment)
               .using(ReadyData(product, p.price, p.amount))
-              .replying(RemainingMoney(p.price))
+              .returning(RemainingMoney(p.price))
           case None =>
-            sM.goto(OutOfStock).replying(ProductOutOfStock)
+            sM.goto(OutOfStock).returning(ProductOutOfStock)
         }
       }
 
@@ -84,12 +108,12 @@ object VendingMachine {
           if (amount >= price) {
             sM.goto(Dispensing)
               .using(TransactionData(product, price, amount, inventory))
-              .replying(PressDispense)
+              .returning(PressDispense)
           } else {
             // Save the current transaction amount and allow the customer to insert more money
             sM.stay()
               .using(TransactionData(product, price, amount, inventory))
-              .replying(RemainingMoney(price - amount))
+              .returning(RemainingMoney(price - amount))
           }
 
         // Customer has insert some money prior
@@ -101,16 +125,16 @@ object VendingMachine {
           if (amount + alreadyInsertedAmount >= price) {
             sM.goto(Dispensing)
               .using(TransactionData(product, price, amount + alreadyInsertedAmount, inventory))
-              .replying(PressDispense)
+              .returning(PressDispense)
           } else {
             sM.stay()
               .using(TransactionData(product, price, amount + alreadyInsertedAmount, inventory))
-              .replying(RemainingMoney(price - (amount + alreadyInsertedAmount)))
+              .returning(RemainingMoney(price - (amount + alreadyInsertedAmount)))
           }
 
         // Customer has timed out, we need to give back the money if the customer inserted some.
         case Event(StateTimeout, _) =>
-          sM.goto(Idle).using(Uninitialized()).replying(Timeout)
+          sM.goto(Idle).using(Uninitialized()).returning(Timeout)
       }
 
       dispensingState: SF = sM => {
@@ -118,11 +142,11 @@ object VendingMachine {
           (updateInventory(product, inventory - 1) >>
             sM.goto(Idle))
             .using(Uninitialized())
-            .replying(Change(product, insertedAmount, insertedAmount - price))
+            .returning(Change(product, insertedAmount, insertedAmount - price))
       }
 
       outOfStockState: SF = sM => { case Event(_, _) => // Just an example to handle this state.
-        sM.goto(Idle).using(Uninitialized()).replying(ProductOutOfStock)
+        sM.goto(Idle).using(Uninitialized()).returning(ProductOutOfStock)
       }
 
       // Putting it all together...

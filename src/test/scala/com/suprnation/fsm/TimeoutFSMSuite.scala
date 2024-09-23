@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
@@ -37,26 +53,26 @@ object TimeoutActor {
       defaultStateStayAwakeFor: FiniteDuration,
       timeOutDef: Deferred[IO, Boolean]
   ): IO[ReplyingActor[IO, TimeoutRequest, List[Replies]]] =
-    FSM[IO, TimeoutState, Int, TimeoutRequest, Replies]
+    FSM[IO, TimeoutState, Int, TimeoutRequest, List[Replies]]
       .when(Awake, defaultStateStayAwakeFor, StateSleep)(sM => {
         case Event(StateSleep, _) =>
           timeOutDef.complete(true) *>
-            sM.goto(Asleep).replying(StateTimeoutSleep)
+            sM.goto(Asleep).returning(List(StateTimeoutSleep))
 
         case Event(TransitionSleep, _) =>
           timeOutDef.complete(true) *>
-            sM.goto(Asleep).replying(TransitionTimeoutSleep)
+            sM.goto(Asleep).returning(List(TransitionTimeoutSleep))
 
-        case Event(Nudge, _) => sM.goto(Nudged).replying(GotNudged)
+        case Event(Nudge, _) => sM.goto(Nudged).returning(List(GotNudged))
       })
-      .when(Nudged)(sM => _ => sM.stayAndReply(GotNudged))
+      .when(Nudged)(sM => _ => sM.stayAndReturn(List(GotNudged)))
       .when(Asleep)(sM => {
         case Event(WakeUp(stayAwakeFor), _) =>
           sM.goto(Awake)
             .forMax(stayAwakeFor.map((_, TransitionSleep)))
-            .replying(WakingUp)
+            .returning(List(WakingUp))
 
-        case Event(Nudge, _) => sM.goto(Nudged).replying(GotNudged)
+        case Event(Nudge, _) => sM.goto(Nudged).returning(List(GotNudged))
       })
       .startWith(startWith, 0)
       .initialize

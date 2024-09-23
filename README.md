@@ -2106,8 +2106,8 @@ object ExampleFSMApp extends IOApp {
   case class Data(counter: Int)
 
   override def run(args: List[String]): IO[ExitCode] = {
-    val fsm: IO[ReplyingActor[IO, Request, List[Any]]] = FSM[IO, State, Data, Request, Any]
-      .withConfig(FSMConfig.withConsoleInformation[IO, State, Data, Request, Any])
+    val fsm: IO[ReplyingActor[IO, Request, List[Any]]] = FSM[IO, State, Data, Request, List[Any]]
+      .withConfig(FSMConfig.withConsoleInformation[IO, State, Data, Request, List[Any]])
       .when(Idle) (stateManager => { case FSM.Event(Start, data) =>
         for {
           newState <- stateManager.goto(Active)
@@ -2167,18 +2167,31 @@ object ExampleFSMApp extends IOApp {
 
 1. **Typed FSM**:
 
-- The FSM is fully typed and will receive messages of type `Request`, which is defined as:
+The FSM is fully typed and will receive messages of type `Request`, which is defined as:
   ```scala
   sealed trait Request
   case object Start extends Request
   case object Stop extends Request
   ```
-- The FSM does not reply to any messages, as highlighted by the `Response` type being `Unit`.
+
+The response type `List[Any]` is explained further below.
+
 
 2. **Timeout Mechanism**:
 
 - `context.setReceiveTimeout(5.seconds, Timeout)` is used to schedule a timeout.
 - When the timeout occurs, the user-defined `Timeout` message is sent to the user actor.
+
+
+3. **Replying FSM**:
+
+- The FSM may reply to a message based on its corresponding state transition. 
+- The reply can be in the form of a returned response that fulfils the ask (`?`) pattern, similarly to any other actor in cats-actors (`ReturnResponse` reply type). 
+- For compatibility with the original Akka implementation, the FSM can also reply by sending a message back to the original sender (`SendMessage` reply type).
+- The FSM can also do both, using the `BothMessageAndResponse` reply type.
+- Depending on its implementation, an FSM may not respond at all, or respond with a single, or multiple replies. This is modelled by the requirement for the response type to be monoidal. If no reply is defined, the identity element is returned or sent, otherwise any replies are combined together in one. This is the reason for the response type `List[Any]` used in the example above.
+- Replies can be defined per state, using the `replying` method with the appropriate reply type, with `SendMessage` as the default. A `returning` method is also provided as a default for the `ReturnResponse` type. Subsequent uses of these methods add further replies to the state, which are combined in the monoidal reponse type.
+
 
 ## Common Use-cases - Integrate with a messaging queue
 
