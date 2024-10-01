@@ -58,14 +58,14 @@ object ContextFSMSuite {
     FSM[IO, FsmParentState, Int, FsmRequest, List[Any]]
       .when(FsmIdle)(sM => { case Event(FsmRun, _) =>
         for {
-          fsmChildActor <- sM.minimalContext.actorOf(FsmChild())
+          fsmChildActor <- sM.actorContext.actorOf(FsmChild())
           result <- fsmChildActor ? FsmChildEcho
           state <- sM.goto(FsmRunning).returning(List(result))
         } yield state
       })
       .when(FsmRunning)(sM => {
         case Event(FsmRun, _) =>
-          (sM.minimalContext.self ! FsmStop) *> sM.stay()
+          (sM.actorContext.self ! FsmStop) *> sM.stay()
         case Event(FsmStop, _) =>
           stopped.complete(true) *> sM.stay()
       })
