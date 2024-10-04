@@ -103,7 +103,7 @@ class SenderSuite extends AsyncFlatSpec with Matchers {
     }
   }
 
-  it should "have a sender which is not defined when using ask.  " in {
+  it should "include itself as a sender on messages when using ask.  " in {
     (for {
       system <- ActorSystem[IO]("sender-system-2", (_: Any) => IO.unit).allocated.map(_._1)
       sinkSenderRef <- Ref[IO].of[Option[NoSendActorRef[IO]]](None)
@@ -123,7 +123,8 @@ class SenderSuite extends AsyncFlatSpec with Matchers {
       // The app actor will forward to the forward actor, let's capture the sender from that actor.
       senderActor <- sinkSenderRef.get
     } yield (forwardActor, senderActor)).unsafeToFuture().map { case (appActor, senderActor) =>
-      assert(senderActor.isEmpty)
+      assert(senderActor.isDefined)
+      assert(appActor == senderActor.get)
     }
   }
 
