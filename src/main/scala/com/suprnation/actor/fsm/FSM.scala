@@ -16,7 +16,7 @@
 
 package com.suprnation.actor.fsm
 
-import cats.Parallel
+import cats.{Monoid, Parallel}
 import cats.effect._
 import cats.effect.std.Console
 import cats.implicits._
@@ -24,6 +24,7 @@ import com.suprnation.actor.Actor.{Actor, ReplyingReceive}
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.fsm.FSM.{Event, StopEvent}
 import com.suprnation.actor.fsm.State.StateTimeoutWithSender
+import com.suprnation.actor.fsm.State.replies._
 import com.suprnation.actor.{ActorLogging, MinimalActorContext, ReplyingActor, SupervisionStrategy}
 import com.suprnation.typelevel.actors.syntax.ActorRefSyntaxOps
 import com.suprnation.typelevel.fsm.syntax._
@@ -38,7 +39,7 @@ object FSM {
       State[S, D, Request, Response]
     ]]
 
-  def apply[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]
+  def apply[F[+_]: Parallel: Async: Temporal, S, D, Request, Response: Monoid]
       : FSMBuilder[F, S, D, Request, Response] =
     FSMBuilder[F, S, D, Request, Response]()
 
@@ -63,11 +64,11 @@ object FSM {
 
 }
 
-sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
+sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response : Monoid]
     extends Actor[F, Any]
     with ActorLogging[F, Any] {
 
-  protected type StateFunction[R] =
+  type StateFunction[R] =
     StateManager[F, S, D, Request, Response] => PartialFunction[FSM.Event[D, R], F[
       State[S, D, Request, Response]
     ]]
@@ -123,8 +124,14 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
       ): F[State[S, D, Request, Response]] =
         stay().map(_.forMax(finiteDuration))
 
-      override def stayAndReply(replyValue: Response): F[State[S, D, Request, Response]] =
+      override def stayAndReply(
+          replyValue: Response,
+          replyType: StateReplyType = SendMessage
+      ): F[State[S, D, Request, Response]] =
         stay().map(_.replying(replyValue))
+
+      override def stayAndReturn(replyValue: Response): F[State[S, D, Request, Response]] =
+        stay().map(_.returning(replyValue))
     }
 
   private def cancelTimeout: F[Unit] =
@@ -145,28 +152,31 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
   }
 
   override def preStart: F[Unit] =
-    customPreStart >> (currentStateRef.get >>= makeTransition)
+    customPreStart >> (currentStateRef.get >>= makeTransition).void
 
-  override def receive: ReplyingReceive[F, Any, Any] = {
+  override def receive: ReplyingReceive[F, Any, Response] = {
     case TimeoutMarker(gen, sender, msg) =>
       generationRef.get
         .map(_ == gen)
         .ifM(
           processMsg(StateTimeoutWithSender(sender, msg), "state timeout"),
-          Sync[F].unit
+          Monoid[Response].empty.pure[F]
         )
 
     case value =>
       cancelTimeout >> generationRef.update(_ + 1) >> processMsg(value, sender)
   }
 
-  private def processMsg(value: Any, source: AnyRef): F[Any] =
+  private def processMsg(value: Any, source: AnyRef): F[Response] =
     currentStateRef.get >>= (currentState =>
       (if (config.debug) config.receive(value, sender, currentState) else Sync[F].unit)
         >> processEvent(Event(value, currentState.stateData), source)
     )
 
-  private def processEvent(event: FSM.Event[D, Any], @unused source: AnyRef): F[Any] =
+  private def processEvent(
+      event: FSM.Event[D, Any],
+      @unused source: AnyRef
+  ): F[Response] =
     for {
       currentState <- currentStateRef.get
       stateFunc = stateFunctions(currentState.stateName)
@@ -195,21 +205,22 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
             .getOrElse(handleEvent(stateManager)(event))
       }
 
-      _ <- applyState(state)
-    } yield state.replies
+      replies <- applyState(state)
+    } yield replies
 
-  private def applyState(nextState: State[S, D, Request, Response]): F[Unit] =
+  private def applyState(nextState: State[S, D, Request, Response]): F[Response] =
     nextState.stopReason match {
       case None =>
         makeTransition(nextState)
 
       case Some(_) =>
         val sendReplies: F[Unit] =
-          nextState.replies.reverse.traverse_(r => sender.get.widenRequest[Response] ! r)
-        sendReplies >> terminate(nextState) >> context.stop(self)
+          sender.fold(Sync[F].unit)(sender => sender.widenRequest[Response] ! nextState.replies)
+        sendReplies >> terminate(nextState) >> context.stop(self) >> nextState.returns
+          .pure[F]
     }
 
-  private def makeTransition(nextState: State[S, D, Request, Response]): F[Unit] = {
+  def makeTransition(nextState: State[S, D, Request, Response]): F[Response] = {
     def scheduleTimeout(timeoutData: (FiniteDuration, Request)): F[Unit] =
       cancelTimeout >>
         (for {
@@ -239,24 +250,22 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
     stateFunctions.get(nextState.stateName) match {
       case None =>
         val errorMessage = s"Next state ${nextState.stateName} does not exist"
-        stateManager.stay().withStopReason(Failure(errorMessage)) >>= terminate
+        (stateManager.stay().withStopReason(Failure(errorMessage)) >>= terminate) >>
+          Monoid[Response].empty.pure[F]
 
       case Some(_) =>
         // If the sender is not not specified (e.g. if you are running directly from an application) we will ignore it to be safe.
-        nextState.replies.reverse.traverse_(r =>
-          sender.fold(Sync[F].unit)(sender =>
-            {
-              // The sender knew that we could send him the Response so this is totally safe.
-              sender.widenRequest[Response] ! r
-            }.void
-          )
+        sender.fold(Sync[F].unit)(sender =>
+          // The sender knew that we could send him the Response so this is totally safe.
+          sender.widenRequest[Response] ! nextState.replies
         ) >>
-          currentStateRef.get.flatMap(processStateTransition)
+          currentStateRef.get.flatMap(processStateTransition) >>
+          nextState.returns.pure[F]
     }
 
   }
 
-  private def onTerminated(reason: Reason, stateData: D): F[Unit] =
+  protected def onTerminated(reason: Reason, stateData: D): F[Unit] =
     onTerminationCallback.fold(Sync[F].unit)(x => x(reason, stateData))
 
   override def postStop: F[Unit] =
@@ -285,12 +294,11 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response]
 
   override def onError(reason: Throwable, message: Option[Any]): F[Unit] =
     customOnError(reason, message)
-
 }
 
 object FSMBuilder {
 
-  def apply[F[+_]: Parallel: Async: Temporal, S, D, Request, Response]()
+  def apply[F[+_]: Parallel: Async, S, D, Request, Response: Monoid]()
       : FSMBuilder[F, S, D, Request, Response] =
     FSMBuilder[F, S, D, Request, Response](
       config = FSMConfig(
@@ -316,7 +324,7 @@ object FSMBuilder {
 }
 
 // In this version we will separate the description from the execution.
-case class FSMBuilder[F[+_]: Parallel: Async, S, D, Request, Response](
+case class FSMBuilder[F[+_]: Parallel: Async, S, D, Request, Response: Monoid](
     config: FSMConfig[F, S, D, Request, Response],
     stateFunctions: Map[S, StateManager[F, S, D, Request, Response] => PartialFunction[
       FSM.Event[D, Request],

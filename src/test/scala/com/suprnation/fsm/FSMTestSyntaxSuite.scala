@@ -19,8 +19,8 @@ object FSMTestSyntaxSuite {
 
   private[FSMTestSyntaxSuite] sealed trait FsmRequest
 
-  def actor(startWith: FsmState): IO[ReplyingActor[IO, FsmRequest, Any]] =
-    FSM[IO, FsmState, Int, FsmRequest, Any]
+  def actor(startWith: FsmState): IO[ReplyingActor[IO, FsmRequest, List[Any]]] =
+    FSM[IO, FsmState, Int, FsmRequest, List[Any]]
       .when(FsmIdle)(sM => { case _ => sM.stop(Normal, 0) })
       .withConfig(FSMConfig.withConsoleInformation)
       .startWith(startWith, 1)
@@ -31,16 +31,15 @@ object FSMTestSyntaxSuite {
 class FSMTestSyntaxSuite extends AsyncFlatSpec with Matchers {
 
   it should "set and retrieve the current state" in {
+    ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).use { actorSystem => 
     (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-
       actor <- FSMTestSyntaxSuite.actor(startWith = FsmIdle)
-      _ <- actorSystem.actorOf(actor)
+      _ <- actorSystem.replyingActorOf(actor)
 
       fsmTestKit <- actor.fsmTestKit[FsmState, Int]
       _ <- fsmTestKit.setState(FsmRunning, 4)
       state <- fsmTestKit.currentState
-    } yield state).unsafeToFuture().map { case (stateName, stateData) =>
+    } yield state)}.unsafeToFuture().map { case (stateName, stateData) =>
       stateName should be(FsmRunning)
       stateData should be(4)
     }

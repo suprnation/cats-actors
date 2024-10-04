@@ -1,10 +1,25 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Deferred, IO, Ref}
 import cats.implicits.catsSyntaxOptionId
-import com.suprnation.actor.Actor.Actor
-import com.suprnation.actor.ActorSystem
+import com.suprnation.actor.{ActorSystem, ReplyingActor}
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.fsm.{FSM, FSMConfig}
 import com.suprnation.typelevel.actors.syntax.ActorSystemDebugOps
@@ -26,9 +41,9 @@ case object Nudged extends TimeoutState
 case object Asleep extends TimeoutState
 
 sealed trait TimeoutRequest
-case class StateSleep() extends TimeoutRequest
-case class TransitionSleep() extends TimeoutRequest
-case class Nudge() extends TimeoutRequest
+case object StateSleep extends TimeoutRequest
+case object TransitionSleep extends TimeoutRequest
+case object Nudge extends TimeoutRequest
 case class WakeUp(stayAwakeFor: Option[FiniteDuration] = None) extends TimeoutRequest
 
 object TimeoutActor {
@@ -37,29 +52,28 @@ object TimeoutActor {
       startWith: TimeoutState,
       defaultStateStayAwakeFor: FiniteDuration,
       timeOutDef: Deferred[IO, Boolean]
-  ): IO[Actor[IO, TimeoutRequest]] =
-    FSM[IO, TimeoutState, Int, TimeoutRequest, Any]
-      .when(Awake, defaultStateStayAwakeFor, StateSleep())(sM => {
-        case Event(StateSleep(), _) =>
+  ): IO[ReplyingActor[IO, TimeoutRequest, List[Replies]]] =
+    FSM[IO, TimeoutState, Int, TimeoutRequest, List[Replies]]
+      .when(Awake, defaultStateStayAwakeFor, StateSleep)(sM => {
+        case Event(StateSleep, _) =>
           timeOutDef.complete(true) *>
-            sM.goto(Asleep).replying(StateTimeoutSleep)
+            sM.goto(Asleep).returning(List(StateTimeoutSleep))
 
-        case Event(TransitionSleep(), _) =>
+        case Event(TransitionSleep, _) =>
           timeOutDef.complete(true) *>
-            sM.goto(Asleep).replying(TransitionTimeoutSleep)
+            sM.goto(Asleep).returning(List(TransitionTimeoutSleep))
 
-        case Event(Nudge(), _) => sM.goto(Nudged).replying(GotNudged)
+        case Event(Nudge, _) => sM.goto(Nudged).returning(List(GotNudged))
       })
-      .when(Nudged)(sM => _ => sM.stayAndReply(GotNudged))
+      .when(Nudged)(sM => _ => sM.stayAndReturn(List(GotNudged)))
       .when(Asleep)(sM => {
         case Event(WakeUp(stayAwakeFor), _) =>
           sM.goto(Awake)
-            .forMax(stayAwakeFor.map((_, TransitionSleep())))
-            .replying(WakingUp)
+            .forMax(stayAwakeFor.map((_, TransitionSleep)))
+            .returning(List(WakingUp))
 
-        case Event(Nudge(), _) => sM.goto(Nudged).replying(GotNudged)
+        case Event(Nudge, _) => sM.goto(Nudged).returning(List(GotNudged))
       })
-      .withConfig(FSMConfig.withConsoleInformation)
       .startWith(startWith, 0)
       .initialize
 
@@ -68,117 +82,118 @@ object TimeoutActor {
 class TimeoutFSMSuite extends AsyncFlatSpec with Matchers {
 
   it should "timeout the Awake state using the 'forMax' and go back to sleep" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-      buffer <- Ref[IO].of(Vector.empty[Any])
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
 
-      timeOutDef <- Deferred[IO, Boolean]
-      timeoutActor <- actorSystem.actorOf(
-        TimeoutActor.forMaxTimeoutActor(
-          Asleep,
-          3.seconds,
-          timeOutDef
-        )
-      )
+          timeOutDef <- Deferred[IO, Boolean]
+          timeoutActor <- actorSystem.replyingActorOf(
+            TimeoutActor.forMaxTimeoutActor(
+              Asleep,
+              3.seconds,
+              timeOutDef
+            )
+          )
 
-      actor <- actorSystem.actorOf[TimeoutRequest](
-        AbsorbReplyActor(timeoutActor, buffer),
-        "actor"
-      )
-      _ <- actor ! WakeUp(stayAwakeFor = 2.seconds.some)
+          r0 <- timeoutActor ? WakeUp(stayAwakeFor = 2.seconds.some)
 
-      _ <- IO.race(IO.sleep(5.seconds), timeOutDef.get)
-      _ <- actorSystem.waitForIdle()
-      messages <- buffer.get
-    } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(WakingUp, TransitionTimeoutSleep))
-    }
+          _ <- IO.race(
+            IO.delay(fail("State did not time out after 4 seconds")).delayBy(4.seconds),
+            timeOutDef.get.map(_ should be(true))
+          )
+          _ <- actorSystem.waitForIdle()
+        } yield r0
+      }
+      .unsafeToFuture()
+      .map { messages =>
+        messages.toList should be(List(WakingUp))
+      }
   }
 
   it should "timeout the Awake state using the 'when' timeout and go back to sleep" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-      buffer <- Ref[IO].of(Vector.empty[Any])
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          timeOutDef <- Deferred[IO, Boolean]
+          timeoutActor <- actorSystem.replyingActorOf(
+            TimeoutActor.forMaxTimeoutActor(
+              Asleep,
+              3.seconds,
+              timeOutDef
+            )
+          )
 
-      timeOutDef <- Deferred[IO, Boolean]
-      timeoutActor <- actorSystem.actorOf(
-        TimeoutActor.forMaxTimeoutActor(
-          Asleep,
-          3.seconds,
-          timeOutDef
-        )
-      )
+          r0 <- timeoutActor ? WakeUp()
 
-      actor <- actorSystem.actorOf[TimeoutRequest](
-        AbsorbReplyActor(timeoutActor, buffer),
-        "actor"
-      )
-      _ <- actor ! WakeUp()
-
-      _ <- IO.race(IO.sleep(5.seconds), timeOutDef.get)
-      _ <- actorSystem.waitForIdle()
-      messages <- buffer.get
-    } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(WakingUp, StateTimeoutSleep))
-    }
+          _ <- IO.race(
+            IO.delay(fail("State did not time out after 4 seconds")).delayBy(4.seconds),
+            timeOutDef.get.map(_ should be(true))
+          )
+          _ <- actorSystem.waitForIdle()
+        } yield r0
+      }
+      .unsafeToFuture()
+      .map { messages =>
+        messages should be(List(WakingUp))
+      }
   }
 
   it should "override state default timeout with the 'forMax' one" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-      buffer <- Ref[IO].of(Vector.empty[Any])
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          timeOutDef <- Deferred[IO, Boolean]
+          timeoutActor <- actorSystem.replyingActorOf(
+            TimeoutActor.forMaxTimeoutActor(
+              Asleep,
+              2.seconds,
+              timeOutDef
+            )
+          )
 
-      timeOutDef <- Deferred[IO, Boolean]
-      timeoutActor <- actorSystem.actorOf(
-        TimeoutActor.forMaxTimeoutActor(
-          Asleep,
-          2.seconds,
-          timeOutDef
-        )
-      )
+          r0 <- timeoutActor ? WakeUp(stayAwakeFor = 3.seconds.some)
 
-      actor <- actorSystem.actorOf[TimeoutRequest](
-        AbsorbReplyActor(timeoutActor, buffer),
-        "actor"
-      )
-      _ <- actor ! WakeUp(stayAwakeFor = 3.seconds.some)
-
-      _ <- IO.race(IO.sleep(5.seconds), timeOutDef.get)
-      _ <- actorSystem.waitForIdle()
-      messages <- buffer.get
-    } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(WakingUp, TransitionTimeoutSleep))
-    }
+          _ <- IO.race(
+            IO.delay(fail("State did not time out after 4 seconds")).delayBy(4.seconds),
+            timeOutDef.get.map(_ should be(true))
+          )
+          _ <- actorSystem.waitForIdle()
+        } yield r0
+      }
+      .unsafeToFuture()
+      .map { messages =>
+        messages should be(List(WakingUp))
+      }
   }
 
   it should "not timeout once we move to another state" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-      buffer <- Ref[IO].of(Vector.empty[Any])
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          timeOutDef <- Deferred[IO, Boolean]
+          timeoutActor <- actorSystem.replyingActorOf(
+            TimeoutActor.forMaxTimeoutActor(
+              Asleep,
+              2.seconds,
+              timeOutDef
+            )
+          )
 
-      timeOutDef <- Deferred[IO, Boolean]
-      timeoutActor <- actorSystem.actorOf(
-        TimeoutActor.forMaxTimeoutActor(
-          Asleep,
-          2.seconds,
-          timeOutDef
-        )
-      )
+          r0 <- timeoutActor ? WakeUp(stayAwakeFor = 2.seconds.some)
+          r1 <- timeoutActor ? Nudge
 
-      actor <- actorSystem.actorOf[TimeoutRequest](
-        AbsorbReplyActor(timeoutActor, buffer),
-        "actor"
-      )
-      _ <- actor ! WakeUp(stayAwakeFor = 2.seconds.some)
-      _ <- actor ! Nudge()
-
-      // IO.sleep should win here as the actor's timeout should be cancelled
-      _ <- IO.race(IO.sleep(4.seconds), timeOutDef.get)
-      _ <- actorSystem.waitForIdle()
-      messages <- buffer.get
-    } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(WakingUp, GotNudged))
-    }
+          // IO.sleep should win here as the actor's timeout should be cancelled
+          _ <- IO.race(
+            IO.sleep(4.seconds),
+            timeOutDef.get.map(_ => fail("State timed out but it should not."))
+          )
+          _ <- actorSystem.waitForIdle()
+        } yield r0 ++ r1
+      }
+      .unsafeToFuture()
+      .map { messages =>
+        messages.toList should be(List(WakingUp, GotNudged))
+      }
   }
 
 }

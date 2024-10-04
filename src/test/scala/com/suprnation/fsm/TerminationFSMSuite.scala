@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
@@ -23,8 +39,8 @@ object TerminationFSMSuite {
   def actor(
       startWith: FsmState,
       stopped: Deferred[IO, Int]
-  ): IO[ReplyingActor[IO, FsmRequest, Any]] =
-    FSM[IO, FsmState, Int, FsmRequest, Any]
+  ): IO[ReplyingActor[IO, FsmRequest, List[Any]]] =
+    FSM[IO, FsmState, Int, FsmRequest, List[Any]]
       .when(FsmIdle)(sM => { case Event(FsmStop, _) =>
         sM.stop(Normal, 0)
       })
@@ -42,24 +58,27 @@ object TerminationFSMSuite {
 class TerminationFSMSuite extends AsyncFlatSpec with Matchers {
 
   it should "create child actor and send a message to self" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          stoppedDef <- Deferred[IO, Int]
+          actor <- actorSystem.replyingActorOf(
+            TerminationFSMSuite.actor(
+              startWith = FsmIdle,
+              stoppedDef
+            )
+          )
 
-      stoppedDef <- Deferred[IO, Int]
-      actor <- actorSystem.actorOf(
-        TerminationFSMSuite.actor(
-          startWith = FsmIdle,
-          stoppedDef
-        )
-      )
+          _ <- actor ! FsmStop
 
-      _ <- actor ! FsmStop
-
-      fsmExitCode <- IO.race(IO.pure(-1).delayBy(4.seconds), stoppedDef.get)
-      _ <- actorSystem.waitForIdle()
-    } yield fsmExitCode).unsafeToFuture().map { fsmExitCode =>
-      fsmExitCode should be(Right(0))
-    }
+          fsmExitCode <- IO.race(IO.pure(-1).delayBy(4.seconds), stoppedDef.get)
+          _ <- actorSystem.waitForIdle()
+        } yield fsmExitCode
+      }
+      .unsafeToFuture()
+      .map { fsmExitCode =>
+        fsmExitCode should be(Right(0))
+      }
   }
 
 }

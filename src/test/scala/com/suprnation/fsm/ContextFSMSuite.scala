@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.fsm
 
 import cats.effect.unsafe.implicits.global
@@ -38,13 +54,13 @@ object ContextFSMSuite {
   def actor(
       startWith: FsmParentState,
       stopped: Deferred[IO, Boolean]
-  ): IO[ReplyingActor[IO, FsmRequest, Any]] =
-    FSM[IO, FsmParentState, Int, FsmRequest, Any]
+  ): IO[ReplyingActor[IO, FsmRequest, List[Any]]] =
+    FSM[IO, FsmParentState, Int, FsmRequest, List[Any]]
       .when(FsmIdle)(sM => { case Event(FsmRun, _) =>
         for {
           fsmChildActor <- sM.minimalContext.actorOf(FsmChild())
           result <- fsmChildActor ? FsmChildEcho
-          state <- sM.goto(FsmRunning).replying(result)
+          state <- sM.goto(FsmRunning).returning(List(result))
         } yield state
       })
       .when(FsmRunning)(sM => {
@@ -53,7 +69,6 @@ object ContextFSMSuite {
         case Event(FsmStop, _) =>
           stopped.complete(true) *> sM.stay()
       })
-      .withConfig(FSMConfig.withConsoleInformation)
       .startWith(startWith, 0)
       .initialize
 
@@ -62,31 +77,31 @@ object ContextFSMSuite {
 class ContextFSMSuite extends AsyncFlatSpec with Matchers {
 
   it should "create child actor and send a message to self" in {
-    (for {
-      actorSystem <- ActorSystem[IO]("FSM Actor", (_: Any) => IO.unit).allocated.map(_._1)
-      buffer <- Ref[IO].of(Vector.empty[Any])
+    ActorSystem[IO]("FSM Actor")
+      .use { actorSystem =>
+        for {
+          stoppedRef <- Deferred[IO, Boolean]
+          fsmActor <- actorSystem.replyingActorOf(
+            ContextFSMSuite.actor(
+              startWith = FsmIdle,
+              stoppedRef
+            )
+          )
 
-      stoppedRef <- Deferred[IO, Boolean]
-      fsmActor <- actorSystem.actorOf(
-        ContextFSMSuite.actor(
-          startWith = FsmIdle,
-          stoppedRef
-        )
-      )
-      actor <- actorSystem.actorOf[FsmRequest](
-        AbsorbReplyActor(fsmActor, buffer),
-        "actor"
-      )
+          r0 <- fsmActor ? FsmRun
+          r1 <- fsmActor ? FsmRun
 
-      _ <- actor ! FsmRun
-      _ <- actor ! FsmRun
-
-      _ <- IO.race(IO.delay(fail()).delayBy(4.seconds), stoppedRef.get.map(_ should be(true)))
-      _ <- actorSystem.waitForIdle()
-      messages <- buffer.get
-    } yield messages).unsafeToFuture().map { messages =>
-      messages.toList should be(List(FsmChildEcho))
-    }
+          _ <- IO.race(
+            IO.delay(fail("Timed out waiting for stop message")).delayBy(4.seconds),
+            stoppedRef.get.map(_ should be(true))
+          )
+          _ <- actorSystem.waitForIdle()
+        } yield List(r0, r1).flatten
+      }
+      .unsafeToFuture()
+      .map { messages =>
+        messages.toList should be(List(FsmChildEcho))
+      }
   }
 
 }

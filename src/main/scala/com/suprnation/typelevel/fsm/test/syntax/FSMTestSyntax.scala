@@ -17,14 +17,14 @@
 package com.suprnation.typelevel.fsm.test.syntax
 
 import cats.implicits._
-import cats.{MonadThrow, Parallel}
+import cats.{MonadThrow, Monoid, Parallel}
 import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.fsm.FSM
 import com.suprnation.actor.fsm.test.FSMTestKit
 
 trait FSMTestSyntax {
 
-  final implicit class FSMReplyingActorTestKit[F[+_]: Parallel: MonadThrow, Request, Response](
+  final implicit class FSMReplyingActorTestKit[F[+_]: Parallel: MonadThrow, Request, Response: Monoid](
       actorRef: ReplyingActor[F, Request, Response]
   ) {
 

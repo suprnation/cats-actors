@@ -16,7 +16,7 @@
 
 package com.suprnation.typelevel.fsm.instances
 
-import cats.Parallel
+import cats.{Monoid, Parallel}
 import cats.effect.{Async, Sync, Temporal}
 import cats.implicits._
 import cats.kernel.Semigroup
@@ -27,7 +27,7 @@ import com.suprnation.actor.SupervisionStrategy
 trait FSMBuilderInstances {
   final implicit def FSMBuilderSemigroupEvidence[F[
       +_
-  ]: Parallel: Async: Temporal, S, D, Request, Response]
+  ]: Parallel: Async: Temporal, S, D, Request, Response: Monoid]
       : Semigroup[FSMBuilder[F, S, D, Request, Response]] =
     new Semigroup[FSMBuilder[F, S, D, Request, Response]] {
 

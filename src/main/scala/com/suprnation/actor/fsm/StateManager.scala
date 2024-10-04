@@ -17,6 +17,7 @@
 package com.suprnation.actor.fsm
 
 import com.suprnation.actor.MinimalActorContext
+import com.suprnation.actor.fsm.State.replies._
 
 import scala.concurrent.duration.FiniteDuration
 
@@ -40,5 +41,10 @@ trait StateManager[F[+_], S, D, Request, Response] {
 
   def stop(reason: Reason, stateData: D): F[State[S, D, Request, Response]]
 
-  def stayAndReply(replyValue: Response): F[State[S, D, Request, Response]]
+  def stayAndReply(
+      replyValue: Response,
+      replyType: StateReplyType = SendMessage
+  ): F[State[S, D, Request, Response]]
+
+  def stayAndReturn(replyValue: Response): F[State[S, D, Request, Response]]
 }

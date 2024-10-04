@@ -16,6 +16,8 @@
 
 package com.suprnation.actor.fsm
 
+import cats.Monoid
+import cats.implicits._
 import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor.fsm.State.SilentState
 import com.suprnation.typelevel.fsm.syntax.Timeout
@@ -23,32 +25,55 @@ import com.suprnation.typelevel.fsm.syntax.Timeout
 import scala.concurrent.duration.FiniteDuration
 
 object State {
-  def apply[S, D, Request, Response](
+  def apply[S, D, Request, Response: Monoid](
       stateName: S,
       stateData: D,
       timeout: Timeout[Request] = None,
-      stopReason: Option[Reason] = None,
-      replies: List[Response] = Nil
+      stopReason: Option[Reason] = None
   ): State[S, D, Request, Response] =
-    new State(stateName, stateData, timeout, stopReason, replies)
+    new State(
+      stateName,
+      stateData,
+      timeout,
+      stopReason,
+      Monoid[Response].empty,
+      Monoid[Response].empty
+    )
 
   def unapply[S, D, Request, Response](
       state: State[S, D, Request, Response]
-  ): Option[(S, D, Timeout[Request], Option[Reason], List[Any])] =
-    Some((state.stateName, state.stateData, state.timeout, state.stopReason, state.replies))
+  ): Option[(S, D, Timeout[Request], Option[Reason], Response, Response)] =
+    Some(
+      (
+        state.stateName,
+        state.stateData,
+        state.timeout,
+        state.stopReason,
+        state.replies,
+        state.returns
+      )
+    )
 
   case class StateTimeoutWithSender[F[+_], Request](
       original: Option[NoSendActorRef[F]],
       msg: Request
   )
 
-  class SilentState[S, D, Request, Response](
+  class SilentState[S, D, Request, Response: Monoid](
       stateName: S,
       stateData: D,
       timeout: Timeout[Request],
       stopReason: Option[Reason],
-      replies: List[Response]
-  ) extends State[S, D, Request, Response](stateName, stateData, timeout, stopReason, replies) {
+      replies: Response, // These will be sent as messages
+      returns: Response // These will be returned and form replies if this state was triggered by an ask
+  ) extends State[S, D, Request, Response](
+        stateName,
+        stateData,
+        timeout,
+        stopReason,
+        replies,
+        returns
+      ) {
 
     override def notifies: Boolean = false
 
@@ -57,27 +82,56 @@ object State {
         stateData: D = stateData,
         timeout: Timeout[Request] = timeout,
         stopReason: Option[Reason] = stopReason,
-        replies: List[Response] = replies
+        replies: Response = replies,
+        returns: Response = returns
     ): State[S, D, Request, Response] =
-      new SilentState(stateName, stateData, timeout, stopReason, replies)
+      new SilentState(stateName, stateData, timeout, stopReason, replies, returns)
 
   }
 
   case object StateTimeout
+
+  object replies {
+    sealed trait StateReplyType
+    case object SendMessage extends StateReplyType
+    case object ReturnResponse extends StateReplyType
+    case object BothMessageAndResponse extends StateReplyType
+  }
 }
 
-class State[S, D, Request, Response](
+class State[S, D, Request, Response: Monoid](
     val stateName: S,
     val stateData: D,
-    val timeout: Timeout[Request] = None,
-    val stopReason: Option[Reason] = None,
-    val replies: List[Response] = Nil
+    val timeout: Timeout[Request],
+    val stopReason: Option[Reason],
+    val replies: Response,
+    val returns: Response
 ) {
+
+  import State.replies._
 
   def notifies: Boolean = true
 
-  def replying(replyValue: Response): State[S, D, Request, Response] =
-    copy(replies = replyValue :: replies)
+  /** Send a reply to the sender of the current message, if available.
+    *
+    * The reply can either be sent as a message or returned as a response via the receiver return type.
+    *
+    * @param replyValue
+    * @param replyType
+    * @return
+    */
+  def replying(
+      replyValue: Response,
+      replyType: StateReplyType = SendMessage
+  ): State[S, D, Request, Response] = replyType match {
+    case SendMessage    => copy(replies = replies |+| replyValue)
+    case ReturnResponse => copy(returns = returns |+| replyValue)
+    case BothMessageAndResponse =>
+      copy(replies = replies |+| replyValue, returns = returns |+| replyValue)
+  }
+
+  def returning(replyValue: Response): State[S, D, Request, Response] =
+    replying(replyValue, ReturnResponse)
 
   def using(nextStateData: D): State[S, D, Request, Response] =
     copy(stateData = nextStateData)
@@ -94,13 +148,14 @@ class State[S, D, Request, Response](
       stateData: D = stateData,
       timeout: Timeout[Request] = timeout,
       stopReason: Option[Reason] = stopReason,
-      replies: List[Response] = replies
+      replies: Response = replies,
+      returns: Response = returns
   ): State[S, D, Request, Response] =
-    new State(stateName, stateData, timeout, stopReason, replies)
+    new State(stateName, stateData, timeout, stopReason, replies, returns)
 
   def withNotification(notifies: Boolean): State[S, D, Request, Response] =
     if (notifies)
-      State(stateName, stateData, timeout, stopReason, replies)
+      new State(stateName, stateData, timeout, stopReason, replies, returns)
     else
-      new SilentState(stateName, stateData, timeout, stopReason, replies)
+      new SilentState(stateName, stateData, timeout, stopReason, replies, returns)
 }

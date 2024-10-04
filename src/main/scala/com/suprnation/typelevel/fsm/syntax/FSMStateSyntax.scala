@@ -18,15 +18,16 @@ package com.suprnation.typelevel.fsm.syntax
 
 import cats.effect.{Async, Temporal}
 import cats.implicits._
-import cats.{Monad, Parallel}
+import cats.{Monad, Monoid, Parallel}
 import com.suprnation.actor.fsm._
+import com.suprnation.actor.fsm.State.replies._
 
 import scala.concurrent.duration.FiniteDuration
 
 trait FSMStateSyntax {
   type Timeout[Request] = Option[(FiniteDuration, Request)]
 
-  final implicit class FSMStateSyntaxOps[F[+_]: Parallel: Monad, S, D, Request, Response](
+  final implicit class FSMStateSyntaxOps[F[+_]: Parallel: Monad, S, D, Request, Response: Monoid](
       sF: F[State[S, D, Request, Response]]
   ) {
     self =>
@@ -43,11 +44,17 @@ trait FSMStateSyntax {
     def withStopReason(reason: Reason): F[State[S, D, Request, Response]] =
       sF.map(_.withStopReason(reason))
 
-    def replying(replyValue: Response): F[State[S, D, Request, Response]] =
-      sF.map(_.replying(replyValue))
+    def replying(
+        replyValue: Response,
+        replyType: StateReplyType = SendMessage
+    ): F[State[S, D, Request, Response]] =
+      sF.map(_.replying(replyValue, replyType))
+
+    def returning(replyValue: Response): F[State[S, D, Request, Response]] =
+      sF.map(_.returning(replyValue))
   }
 
-  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D, Request, Response](
+  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D, Request, Response: Monoid](
       stateName: S,
       stateTimeout: Timeout[Request] = Option.empty[(FiniteDuration, Request)]
   )(
@@ -58,7 +65,7 @@ trait FSMStateSyntax {
   ): FSMBuilder[F, S, D, Request, Response] =
     FSMBuilder[F, S, D, Request, Response]().when(stateName, stateTimeout)(stateFunction)
 
-  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D, Request, Response](
+  final implicit def when[F[+_]: Parallel: Async: Temporal, S, D, Request, Response: Monoid](
       stateName: S,
       stateTimeout: FiniteDuration,
       onTimeout: Request
