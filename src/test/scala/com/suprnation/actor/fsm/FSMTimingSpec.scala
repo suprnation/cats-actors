@@ -13,6 +13,7 @@ import com.suprnation.actor.ActorSystem
 import com.suprnation.actor.debug.TrackingActor
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.sender.Sender.BaseActor.{Ask, BaseActorMessages, Forward, Tell}
+import com.suprnation.actor.test.TestKit
 import com.suprnation.typelevel.actors.syntax._
 import com.suprnation.typelevel.fsm.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
@@ -20,36 +21,10 @@ import org.scalatest.matchers.should.Matchers
 
 import scala.collection.immutable.HashMap
 import scala.concurrent.duration._
-
-import java.time.LocalDateTime
 import java.util.concurrent.TimeoutException
 
 
-object FSMTimingSpec {
-
- /**
-   * Await until the given condition evaluates to `true` or the timeout
-   * expires, whichever comes first.
-   *
-   * If no timeout is given, take it from the innermost enclosing `witn`
-   * block.
-   *
-   * Note that the timeout is scaled using Duration.dilated,
-   * which uses the configuration entry "akka.test.timefactor".
-   */
-  def awaitCond(
-    p: IO[Boolean],
-    max: FiniteDuration,
-    interval: Duration = 100.millis,
-    message: String = ""
-  ): IO[Unit] =
-    IO.monotonic.map(_ + max) >>= { stop =>
-      IO.monotonic.flatMap { now => IO.raiseUnless(now < stop)(
-        new TimeoutException(s"timeout ${max} expired: $message")
-      )}
-        .andWait(max min interval)
-        .untilM_(p)
-    }
+object FSMTimingSpec extends TestKit {
 
   def awaitMessage(
     sM: StateManager[IO, TState, Int, Message, List[Message]],
@@ -65,33 +40,6 @@ object FSMTimingSpec {
         ), 
       max
     )
-
-  def expectMsgs(actor: ActorRef[IO, _], timeout: FiniteDuration = 1.minute)(messages: Any*): IO[Unit] = 
-    for {
-      startQ <- actor.messageBuffer
-      _ <- IO.println(s"Expecting: $messages in queue: $startQ")
-      expectedQ = startQ._2 ++ messages
-      _ <- awaitCond(actor.messageBuffer.map(_._2 == expectedQ), timeout, 100.millis, s"expecting messages: $messages")
-      // .flatTap(buf => IO.println(s">>> $buf"))
-    } yield ()
-
-  def expectNoMsg(actor: ActorRef[IO, Message], timeout: FiniteDuration = 1.minute): IO[Unit] = 
-    for {
-      startQ <- actor.messageBuffer
-      _ <- IO.sleep(timeout)
-      _ <- actor.messageBuffer.flatMap(endQ => IO.raiseUnless(endQ == startQ)(new Exception(s"message buffer unexpected change - before: $startQ - after: $endQ")))
-    } yield ()
-
-  def within[T](min: FiniteDuration, max: FiniteDuration)(f: => IO[T]): IO[T] = for {
-    start <- IO.monotonic
-    result <- f.timeout(max).adaptError{ case t: TimeoutException => new TimeoutException(s"timeout ${max} expired while executing block") }
-    finish <- IO.monotonic
-    diff = finish - start
-    _ <- IO.raiseWhen(diff < min)(new Exception(s"block took $diff, should at least have been $min"))
-    //_ <- IO.raiseWhen(diff > max)(new Exception(s"block took $diff, exceeding $max"))
-  } yield result
-
-  def within[T](max: FiniteDuration)(f: => IO[T]): IO[T] = within(0.seconds, max)(f)
 
   def suspend[I, O](actorRef: ReplyingActorRef[IO, I, O]): IO[Unit] = actorRef match {
     case l: InternalActorRef[IO, I, O] => l.suspend(None)
