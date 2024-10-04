@@ -47,7 +47,7 @@ jobs:
         run: sbt ++2.13.12 clean compile test
 
       - name: Run tests for Scala 3
-        run: sbt ++3.3.0 clean compile test
+        run: sbt ++3.3.4 clean compile test
 
       - name: Sbt Dependency Submission for Scala 2.13
         uses: scalacenter/sbt-dependency-submission@v3.0.1
