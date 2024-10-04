@@ -16,7 +16,6 @@ import com.suprnation.actor.supervision.SupervisionEscalation.{
 }
 import com.suprnation.typelevel.actors.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
-import org.scalatest.matchers.must.Matchers.convertToAnyMustWrapper
 import org.scalatest.matchers.should.Matchers
 
 import scala.collection.immutable.HashMap
@@ -248,7 +247,7 @@ class SupervisionEscalation extends AsyncFlatSpec with Matchers {
           }
       )
       .recover { case exception: ActorInitializationException[IO] =>
-        exception.cause mustBe a[RuntimeException]
+        exception.cause shouldBe a[RuntimeException]
       }
       .unsafeToFuture()
   }
