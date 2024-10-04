@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{IO, Ref}
@@ -36,8 +36,8 @@ import scala.collection.immutable.HashMap
 
 object ChattyTurnstile {
 
-  val turnstileReplyingFsm: IO[ReplyingActor[IO, Input, List[State]]] =
-    FSMBuilder[IO, State, Unit, Input, List[State]]()
+  val turnstileReplyingFsm: IO[ReplyingActor[IO, Input, List[TState]]] =
+    FSMBuilder[IO, TState, Unit, Input, List[TState]]()
       .when(Locked)(sM => {
         case Event(Coin, _) =>
           sM.goto(Unlocked).replying(List(Unlocked)).replying(List(Unlocked))
@@ -53,8 +53,8 @@ object ChattyTurnstile {
       .startWith(Locked, ())
       .initialize
 
-  val turnstileReturningFsm: IO[ReplyingActor[IO, Input, List[State]]] =
-    FSMBuilder[IO, State, Unit, Input, List[State]]()
+  val turnstileReturningFsm: IO[ReplyingActor[IO, Input, List[TState]]] =
+    FSMBuilder[IO, TState, Unit, Input, List[TState]]()
       .when(Locked)(sM => {
         case Event(Coin, _) =>
           sM.goto(Unlocked).returning(List(Unlocked)).returning(List(Unlocked))
@@ -70,8 +70,8 @@ object ChattyTurnstile {
       .startWith(Locked, ())
       .initialize
 
-  val turnstileReturningAndReplyingFsm: IO[ReplyingActor[IO, Input, List[State]]] =
-    FSMBuilder[IO, State, Unit, Input, List[State]]()
+  val turnstileReturningAndReplyingFsm: IO[ReplyingActor[IO, Input, List[TState]]] =
+    FSMBuilder[IO, TState, Unit, Input, List[TState]]()
       .when(Locked)(sM => {
         case Event(Coin, _) =>
           sM.goto(Unlocked)
@@ -91,9 +91,9 @@ object ChattyTurnstile {
       .startWith(Locked, ())
       .initialize
 
-  case class ProxyActor(fsmActor: ReplyingActorRef[IO, Input, List[State]])
-      extends ReplyingActor[IO, Any, List[State]] {
-    override def receive: ReplyingReceive[IO, Any, List[State]] = {
+  case class ProxyActor(fsmActor: ReplyingActorRef[IO, Input, List[TState]])
+      extends ReplyingActor[IO, Any, List[TState]] {
+    override def receive: ReplyingReceive[IO, Any, List[TState]] = {
       case s: Input => fsmActor ? s
       case _        => List().pure[IO]
     }

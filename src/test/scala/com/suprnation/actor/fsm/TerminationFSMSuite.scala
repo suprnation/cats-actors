@@ -14,14 +14,14 @@
  * limitations under the License.
  */
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.effect.unsafe.implicits.global
 import cats.effect.{Deferred, IO}
 import com.suprnation.actor.fsm.FSM.Event
 import com.suprnation.actor.fsm.{FSM, FSMConfig, Normal}
 import com.suprnation.actor.{ActorSystem, ReplyingActor}
-import com.suprnation.fsm.TerminationFSMSuite._
+import com.suprnation.actor.fsm.TerminationFSMSuite._
 import com.suprnation.typelevel.actors.syntax.ActorSystemDebugOps
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers

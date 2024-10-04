@@ -89,8 +89,6 @@ object State {
 
   }
 
-  case object StateTimeout
-
   object replies {
     sealed trait StateReplyType
     case object SendMessage extends StateReplyType
@@ -141,6 +139,9 @@ class State[S, D, Request, Response: Monoid](
 
   def forMax(duration: Option[(FiniteDuration, Request)]): State[S, D, Request, Response] =
     copy(timeout = duration)
+
+  def forMax(duration: FiniteDuration, timeoutRequest: Request): State[S, D, Request, Response] =
+    copy(timeout = Some(duration, timeoutRequest))
 
   // defined here to be able to override it in SilentState
   def copy(

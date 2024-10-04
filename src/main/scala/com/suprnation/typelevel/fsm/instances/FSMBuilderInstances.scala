@@ -23,6 +23,7 @@ import cats.kernel.Semigroup
 import com.suprnation.actor.fsm.FSM.StopEvent
 import com.suprnation.actor.fsm.{FSMBuilder, FSMConfig, Reason, State}
 import com.suprnation.actor.SupervisionStrategy
+import scala.concurrent.duration.FiniteDuration
 
 trait FSMBuilderInstances {
   final implicit def FSMBuilderSemigroupEvidence[F[
@@ -73,7 +74,13 @@ trait FSMBuilderInstances {
             },
             (oldState: State[S, D, Request, Response], newState: State[S, D, Request, Response]) =>
               Async[F].whenA(x.config.debug)(x.config.transition(oldState, newState)) >>
-                Async[F].whenA(y.config.debug)(y.config.transition(oldState, newState))
+                Async[F].whenA(y.config.debug)(y.config.transition(oldState, newState)),
+            (name: String, message: Request, timeout: FiniteDuration, repeat: Boolean) =>
+              Async[F].whenA(x.config.debug)(x.config.startTimer(name, message, timeout, repeat)) >>
+                Async[F].whenA(y.config.debug)(y.config.startTimer(name, message, timeout, repeat)),
+            (name: String) =>
+              Async[F].whenA(x.config.debug)(x.config.cancelTimer(name)) >>
+                Async[F].whenA(y.config.debug)(y.config.cancelTimer(name))
           ),
           stateFunctions = x.stateFunctions ++ y.stateFunctions,
           stateTimeouts = x.stateTimeouts ++ y.stateTimeouts,

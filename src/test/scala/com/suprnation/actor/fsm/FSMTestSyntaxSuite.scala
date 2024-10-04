@@ -1,11 +1,11 @@
 
-package com.suprnation.fsm
+package com.suprnation.actor.fsm
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
 import com.suprnation.actor.fsm.{FSM, FSMConfig, Normal}
 import com.suprnation.actor.{ActorSystem, ReplyingActor}
-import com.suprnation.fsm.FSMTestSyntaxSuite.{FsmIdle, FsmRunning, FsmState}
+import com.suprnation.actor.fsm.FSMTestSyntaxSuite.{FsmIdle, FsmRunning, FsmState}
 import com.suprnation.typelevel.fsm.test.syntax._
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
