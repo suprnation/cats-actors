@@ -37,7 +37,8 @@ trait StateContext[F[+_], S, D, Request, Response] {
   def isTimerActive(name: String): F[Boolean]
 }
 
-trait StateManager[F[+_], S, D, Request, Response] extends StateContext[F, S, D, Request, Response] {
+trait StateManager[F[+_], S, D, Request, Response]
+    extends StateContext[F, S, D, Request, Response] {
 
   def forMax(timeoutData: Option[(FiniteDuration, Request)]): F[State[S, D, Request, Response]]
 
@@ -59,15 +60,16 @@ trait StateManager[F[+_], S, D, Request, Response] extends StateContext[F, S, D,
   def stayAndReturn(replyValue: Response): F[State[S, D, Request, Response]]
 }
 
-abstract class TransitionContext[F[+_], S, D, Request, Response] extends StateContext[F, S, D, Request, Response] {
+abstract class TransitionContext[F[+_], S, D, Request, Response]
+    extends StateContext[F, S, D, Request, Response] {
   def nextStateData: D
 }
 
 object TransitionContext {
 
   def fromManager[F[+_], S, D, Request, Response](
-    stateManager: StateManager[F, S, D, Request, Response],
-    nextStateDataArg: D
+      stateManager: StateManager[F, S, D, Request, Response],
+      nextStateDataArg: D
   ): TransitionContext[F, S, D, Request, Response] =
     new TransitionContext[F, S, D, Request, Response] {
       override val nextStateData: D = nextStateDataArg
@@ -76,11 +78,17 @@ object TransitionContext {
 
       override val stateData: F[D] = stateManager.stateData
 
-      override val actorContext: MinimalActorContext[F, Request, Response] = stateManager.actorContext
+      override val actorContext: MinimalActorContext[F, Request, Response] =
+        stateManager.actorContext
 
-      override def startSingleTimer(name: String, msg: Request, delay: FiniteDuration): F[Unit] = stateManager.startSingleTimer(name, msg, delay)
+      override def startSingleTimer(name: String, msg: Request, delay: FiniteDuration): F[Unit] =
+        stateManager.startSingleTimer(name, msg, delay)
 
-      override def startTimerWithFixedDelay(name: String, msg: Request, delay: FiniteDuration): F[Unit] = stateManager.startTimerWithFixedDelay(name, msg, delay)
+      override def startTimerWithFixedDelay(
+          name: String,
+          msg: Request,
+          delay: FiniteDuration
+      ): F[Unit] = stateManager.startTimerWithFixedDelay(name, msg, delay)
 
       override def cancelTimer(name: String): F[Unit] = stateManager.cancelTimer(name)
 

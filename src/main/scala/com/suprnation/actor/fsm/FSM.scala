@@ -16,22 +16,16 @@
 
 package com.suprnation.actor.fsm
 
-import cats.{Monoid, Parallel}
 import cats.effect._
 import cats.effect.std.Console
 import cats.implicits._
+import cats.{Monoid, Parallel}
 import com.suprnation.actor.Actor.{Actor, ReplyingReceive}
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.fsm.FSM.{Event, StopEvent}
-import com.suprnation.actor.fsm.State.replies._
 import com.suprnation.actor.fsm.State.StateTimeoutWithSender
-import com.suprnation.actor.{
-  ActorLogging,
-  MinimalActorContext,
-  ReplyingActor,
-  Scheduler,
-  SupervisionStrategy
-}
+import com.suprnation.actor.fsm.State.replies._
+import com.suprnation.actor.{ActorLogging, MinimalActorContext, ReplyingActor, SupervisionStrategy}
 import com.suprnation.typelevel.actors.syntax.ActorRefSyntaxOps
 import com.suprnation.typelevel.fsm.syntax._
 
@@ -45,7 +39,8 @@ object FSM {
       State[S, D, Request, Response]
     ]]
 
-  type TransitionHandler[F[+_], S, D, Request, Response] = PartialFunction[(S, S), TransitionContext[F, S, D, Request, Response] => F[Unit]]
+  type TransitionHandler[F[+_], S, D, Request, Response] =
+    PartialFunction[(S, S), TransitionContext[F, S, D, Request, Response] => F[Unit]]
 
   def apply[F[+_]: Parallel: Async, S, D, Request, Response: Monoid]
       : FSMBuilder[F, S, D, Request, Response] =
@@ -72,7 +67,7 @@ object FSM {
 
 }
 
-sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response : Monoid]
+private sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response: Monoid]
     extends Actor[F, Any]
     with ActorLogging[F, Any] {
 
@@ -94,7 +89,7 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response : Mono
   protected val onTerminationCallback: Option[(Reason, D) => F[Unit]]
 
   protected val customPreStart: StateContext[F, S, D, Request, Response] => F[Unit]
-  protected val customPostStop: StateContext[F, S, D, Request, Response] =>F[Unit]
+  protected val customPostStop: StateContext[F, S, D, Request, Response] => F[Unit]
   protected val customOnError: Function2[Throwable, Option[Any], F[Unit]]
   protected val customSupervisorStrategy: Option[SupervisionStrategy[F]]
 
@@ -144,28 +139,28 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response : Mono
         stay().map(_.returning(replyValue))
 
       override def startSingleTimer(
-        name: String,
-        msg: Request,
-        delay: FiniteDuration
+          name: String,
+          msg: Request,
+          delay: FiniteDuration
       ): F[Unit] =
         startTimer(name, msg, delay, SingleMode)
 
       override def startTimerWithFixedDelay(
-        name: String,
-        msg: Request,
-        delay: FiniteDuration
+          name: String,
+          msg: Request,
+          delay: FiniteDuration
       ): F[Unit] =
         startTimer(name, msg, delay, FixedDelayMode)
 
       private def startTimer(
-        name: String,
-        msg: Request,
-        timeout: FiniteDuration,
-        mode: TimerMode
+          name: String,
+          msg: Request,
+          timeout: FiniteDuration,
+          mode: TimerMode
       ): F[Unit] = for {
         _ <-
-        if (config.debug) config.startTimer(name, msg, timeout, mode.repeat)
-        else Async[F].unit
+          if (config.debug) config.startTimer(name, msg, timeout, mode.repeat)
+          else Async[F].unit
         gen <- timerGen.getAndUpdate(_ + 1)
         timer = Timer(name, msg, mode, gen, self)(context.system.scheduler)
         fiber <- timer.schedule(self, timeout)
@@ -179,9 +174,9 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response : Mono
 
       override def cancelTimer(name: String): F[Unit] =
         (if (config.debug) config.cancelTimer(name) else Async[F].unit) >>
-      timerRef.flatModify(timers =>
-        (timers - name, timers.get(name).map(_.cancel).getOrElse(Async[F].unit))
-      )
+          timerRef.flatModify(timers =>
+            (timers - name, timers.get(name).map(_.cancel).getOrElse(Async[F].unit))
+          )
 
       override def isTimerActive(name: String): F[Boolean] =
         timerRef.get.map(_.contains(name))
@@ -194,7 +189,8 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response : Mono
     timerRef.getAndSet(Map()) >>= (_.values.toList.traverse_(_.cancel))
 
   private def handleTransition(prev: S, next: S, nextStateData: D): F[Unit] = {
-    lazy val context: TransitionContext[F, S, D, Request, Response] = TransitionContext.fromManager(stateManager, nextStateData)
+    lazy val context: TransitionContext[F, S, D, Request, Response] =
+      TransitionContext.fromManager(stateManager, nextStateData)
     transitionEvent.collect {
       case te if te.isDefinedAt((prev, next)) => te((prev, next))(context)
     }.sequence_
@@ -229,9 +225,9 @@ sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response : Mono
           .ifM(
             cancelTimeout >> generationRef.update(_ + 1) >>
               (if (!mode.repeat)
-                timerRef.update(_ - name)
-              else
-                Async[F].unit) >>
+                 timerRef.update(_ - name)
+               else
+                 Async[F].unit) >>
               processMsg(msg, t),
             Monoid[Response].empty.pure[F]
           )
@@ -518,14 +514,17 @@ case class FSMBuilder[F[+_]: Parallel: Async, S, D, Request, Response: Monoid](
             ]] = builderSelf.stateFunctions
         override protected val stateTimeouts: Map[S, Option[(FiniteDuration, Request)]] =
           builderSelf.stateTimeouts
-        override protected val transitionEvent: List[FSM.TransitionHandler[F, S, D, Request, Response]] =
+        override protected val transitionEvent
+            : List[FSM.TransitionHandler[F, S, D, Request, Response]] =
           builderSelf.transitionEvent
         override protected val terminateEvent: PartialFunction[StopEvent[S, D], F[Unit]] =
           builderSelf.terminateEvent
         override protected val onTerminationCallback: Option[(Reason, D) => F[Unit]] =
           builderSelf.onTerminationCallback
-        override protected val customPreStart: StateContext[F, S, D, Request, Response] => F[Unit] = builderSelf.preStart
-        override protected val customPostStop: StateContext[F, S, D, Request, Response] => F[Unit] = builderSelf.postStop
+        override protected val customPreStart: StateContext[F, S, D, Request, Response] => F[Unit] =
+          builderSelf.preStart
+        override protected val customPostStop: StateContext[F, S, D, Request, Response] => F[Unit] =
+          builderSelf.postStop
         override protected val customSupervisorStrategy: Option[SupervisionStrategy[F]] =
           builderSelf.supervisorStrategy
         override protected val customOnError: (Throwable, Option[Any]) => F[Unit] =
