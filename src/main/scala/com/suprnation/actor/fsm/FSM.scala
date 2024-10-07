@@ -17,6 +17,7 @@
 package com.suprnation.actor.fsm
 
 import cats.effect._
+import cats.effect.implicits._
 import cats.effect.std.Console
 import cats.implicits._
 import cats.{Monoid, Parallel}
@@ -42,8 +43,7 @@ object FSM {
   type TransitionHandler[F[+_], S, D, Request, Response] =
     PartialFunction[(S, S), TransitionContext[F, S, D, Request, Response] => F[Unit]]
 
-  def apply[F[+_]: Parallel: Async, S, D, Request, Response: Monoid]
-      : FSMBuilder[F, S, D, Request, Response] =
+  def apply[F[+_]: Async, S, D, Request, Response: Monoid]: FSMBuilder[F, S, D, Request, Response] =
     FSMBuilder[F, S, D, Request, Response]()
 
   /** All messages sent to the FSM will be wrapped inside an `Event`, which allows pattern matching to extract both state and data.
@@ -67,7 +67,7 @@ object FSM {
 
 }
 
-private sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Response: Monoid]
+private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
     extends Actor[F, Any]
     with ActorLogging[F, Any] {
 
@@ -368,7 +368,7 @@ private sealed abstract class FSM[F[+_]: Parallel: Async, S, D, Request, Respons
 
 object FSMBuilder {
 
-  def apply[F[+_]: Parallel: Async, S, D, Request, Response: Monoid]()
+  def apply[F[+_]: Async, S, D, Request, Response: Monoid]()
       : FSMBuilder[F, S, D, Request, Response] =
     FSMBuilder[F, S, D, Request, Response](
       config = FSMConfig(
@@ -395,7 +395,7 @@ object FSMBuilder {
 }
 
 // In this version we will separate the description from the execution.
-case class FSMBuilder[F[+_]: Parallel: Async, S, D, Request, Response: Monoid](
+case class FSMBuilder[F[+_]: Async, S, D, Request, Response: Monoid](
     config: FSMConfig[F, S, D, Request, Response],
     stateFunctions: Map[S, StateManager[F, S, D, Request, Response] => PartialFunction[
       FSM.Event[D, Request],

@@ -16,9 +16,9 @@
 
 package com.suprnation.actor.dungeon
 
-import cats.effect.syntax.all._
 import cats.effect.{Concurrent, Ref}
-import cats.syntax.all._
+import cats.effect.implicits._
+import cats.implicits._
 import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor._
 import com.suprnation.actor.dispatch.SystemMessage.Failed
@@ -88,7 +88,7 @@ trait FaultHandling[F[+_], Request, Response] {
             for {
               _ <- isFailedFatally
                 .ifM(
-                  concurrentF.unit,
+                  asyncF.unit,
                   actor.aroundPreRestart(cause, currentMessage)
                 )
                 .recoverWith { case e: PreRestartException[?] =>
@@ -104,7 +104,7 @@ trait FaultHandling[F[+_], Request, Response] {
                     .pure[F]
               )
               _ <- setChildrenTerminationReason(ChildrenContainer.Recreation(cause))
-                .ifM(().pure, finishRecreate(cause))
+                .ifM(asyncF.unit, finishRecreate(cause))
             } yield (),
             faultResume(None)
           )
@@ -124,7 +124,7 @@ trait FaultHandling[F[+_], Request, Response] {
       _ <- children.stats.parTraverse_ {
         case ChildRestartStats(child, _, _) if !(exceptFor contains child) =>
           child.asInstanceOf[InternalActorRef[F, Nothing, Any]].suspend(None)
-        case _ => concurrentF.unit
+        case _ => asyncF.unit
       }
     } yield ()
 
@@ -152,7 +152,7 @@ trait FaultHandling[F[+_], Request, Response] {
               for {
                 perp <- perpetrator
                 _ <- resumeNonRecursive.guarantee(
-                  Option(causedByFailure).fold(concurrentF.unit)(_ => clearFailed())
+                  Option(causedByFailure).fold(asyncF.unit)(_ => clearFailed())
                 )
                 _ <- resumeChildren(causedByFailure, perp)
               } yield ()
@@ -181,7 +181,7 @@ trait FaultHandling[F[+_], Request, Response] {
       _ <- children.flatMap(_.traverse(_.stop))
 
       _ <- setChildrenTerminationReason(ChildrenContainer.Creation()).ifM(
-        concurrentF.unit,
+        asyncF.unit,
         finishCreate()
       )
 
@@ -207,7 +207,7 @@ trait FaultHandling[F[+_], Request, Response] {
     _ <- setChildrenTerminationReason(ChildrenContainer.Termination).ifM(
       if (terminatedAlready) {
         // If the mailbox was already closed we do not need to call it again.
-        concurrentF.unit
+        asyncF.unit
       } else {
         for {
           _ <- dispatchContext.mailbox.close
@@ -215,7 +215,7 @@ trait FaultHandling[F[+_], Request, Response] {
           _ <- setFailed(self)
           _ <-
             if (system.settings.DebugLifecycle) publish(Debug(self.path.toString, _, "stopping"))
-            else concurrentF.unit
+            else asyncF.unit
         } yield ()
       },
       childrenContext.childrenRefCriticalSection.permit.use { _ =>
@@ -238,10 +238,10 @@ trait FaultHandling[F[+_], Request, Response] {
   ): F[Unit] =
     isFailed
       .ifM(
-        concurrentF.unit,
+        asyncF.unit,
         for {
           _ <- this.actorOp.flatMap {
-            case None    => concurrentF.unit
+            case None    => asyncF.unit
             case Some(a) => a.onError(t, currentMessage)
           }
           _ <- suspendNonRecursive(Some(t))
@@ -310,7 +310,7 @@ trait FaultHandling[F[+_], Request, Response] {
           .pure[F]
           .ifM(
             publish(Debug(self.path.toString, _, "restarted")),
-            concurrentF.unit
+            asyncF.unit
           )
         _ <- survivors.parTraverse_(child =>
           child
@@ -348,7 +348,7 @@ trait FaultHandling[F[+_], Request, Response] {
               stats,
               allChildStatistics
             )
-            _ <- if (handled) concurrentF.unit else Concurrent[F].raiseError(f.cause)
+            _ <- if (handled) asyncF.unit else Concurrent[F].raiseError(f.cause)
           } yield ()
         case Some(stats) =>
           publish(
@@ -376,7 +376,7 @@ trait FaultHandling[F[+_], Request, Response] {
         maybeActor <- actorOp
         c <- children
         context <- this.context
-        _ <- maybeActor.fold(concurrentF.unit)(actor =>
+        _ <- maybeActor.fold(asyncF.unit)(actor =>
           actor.supervisorStrategy.handleChildTerminated(context, child, c).recoverWith {
             case NonFatal(e) =>
               publish(event.Error(e, self.path.toString, _, "handleChildTerminated failed")) >>
@@ -387,7 +387,7 @@ trait FaultHandling[F[+_], Request, Response] {
           case Some(ChildrenContainer.Recreation(cause)) => finishRecreate(cause)
           case Some(ChildrenContainer.Creation())        => finishCreate()
           case Some(ChildrenContainer.Termination)       => finishTerminate
-          case _                                         => concurrentF.unit
+          case _                                         => asyncF.unit
         }
       } yield ()
     )

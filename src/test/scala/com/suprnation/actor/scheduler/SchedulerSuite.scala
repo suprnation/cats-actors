@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.actor.scheduler
 
 import cats.effect.unsafe.implicits.global
@@ -32,8 +48,8 @@ object SchedulerSuite {
   val testDecider: Decider = { TestException => Resume }
 
   class TickActor(latch: CountDownLatch[IO]) extends Actor[IO, Message] {
-    override def receive: Receive[IO, Message] = {
-      case Tick => latch.release
+    override def receive: Receive[IO, Message] = { case Tick =>
+      latch.release
     }
 
   }
@@ -126,7 +142,6 @@ class SchedulerSuite extends AsyncFlatSpec with Matchers {
       }
   }
 
-
   it should "handle failure" in {
     ActorSystem[IO]("Scheduler Suite")
       .use { system =>
@@ -138,14 +153,10 @@ class SchedulerSuite extends AsyncFlatSpec with Matchers {
         } yield idle
       }
       .unsafeToFuture()
-      .map {
-        case (
-          idle
-        ) =>
-          idle shouldBe true
+      .map { case idle =>
+        idle shouldBe true
       }
   }
-
 
   it should "be cancellable" in {
     ActorSystem[IO]("Scheduler Suite")
@@ -177,7 +188,7 @@ class SchedulerSuite extends AsyncFlatSpec with Matchers {
       }
   }
 
-  "Schedule with fixed delay" should "schedule more than once"  in {
+  "Schedule with fixed delay" should "schedule more than once" in {
     ActorSystem[IO]("Scheduler Suite")
       .use { system =>
         for {
@@ -186,9 +197,8 @@ class SchedulerSuite extends AsyncFlatSpec with Matchers {
           )
           count <- Ref[IO].of(0)
           testActor <- system.actorOf(new Actor[IO, Message] {
-            override def receive: Receive[IO, Message] = {
-              case Tack(sender) =>
-                count.getAndUpdate(_ + 1).map(_ < 3).ifM(sender ! Tock, IO.unit)
+            override def receive: Receive[IO, Message] = { case Tack(sender) =>
+              count.getAndUpdate(_ + 1).map(_ < 3).ifM(sender ! Tock, IO.unit)
             }
           })
 
@@ -197,16 +207,18 @@ class SchedulerSuite extends AsyncFlatSpec with Matchers {
               .ignoring[IO, Message]("scheduler test ignoring actor")
               .track("scheduler test ignoring actor")(cache)
           )
-        
+
           // run every 50 milliseconds
-          _ <- system.scheduler.scheduleWithFixedDelay(Duration.Zero, 50.millis)(testActor ! Tack(receiver))
+          _ <- system.scheduler.scheduleWithFixedDelay(Duration.Zero, 50.millis)(
+            testActor ! Tack(receiver)
+          )
 
           _ <- IO.sleep(500.millis)
           messages <- receiver.messageBuffer
-        } yield (messages._2)      
+        } yield messages._2
       }
       .unsafeToFuture()
-      .map { messages => messages shouldBe (List(Tock, Tock, Tock)) }
+      .map(messages => messages shouldBe (List(Tock, Tock, Tock)))
   }
 
   it should "handle failure" in {
@@ -240,9 +252,9 @@ class SchedulerSuite extends AsyncFlatSpec with Matchers {
       .unsafeToFuture()
       .map {
         case (
-          messages,
-          idle
-        ) =>
+              messages,
+              idle
+            ) =>
           messages shouldBe (List(Tock, Tock, Tock))
           idle shouldBe true
       }
@@ -262,7 +274,9 @@ class SchedulerSuite extends AsyncFlatSpec with Matchers {
           )
 
           // run after 300 millisecs
-          fiber <- system.scheduler.scheduleWithFixedDelay(Duration.Zero, 300.millis)(testActor ! Tick)
+          fiber <- system.scheduler.scheduleWithFixedDelay(Duration.Zero, 300.millis)(
+            testActor ! Tick
+          )
           _ <- IO.sleep(50.millis)
           _ <- fiber.cancel
 

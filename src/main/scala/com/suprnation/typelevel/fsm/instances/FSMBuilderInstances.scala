@@ -16,8 +16,8 @@
 
 package com.suprnation.typelevel.fsm.instances
 
-import cats.{Monoid, Parallel}
-import cats.effect.{Async, Sync, Temporal}
+import cats.Monoid
+import cats.effect.{Async, Sync}
 import cats.implicits._
 import cats.kernel.Semigroup
 import com.suprnation.actor.fsm.FSM.StopEvent
@@ -28,8 +28,7 @@ import scala.concurrent.duration.FiniteDuration
 trait FSMBuilderInstances {
   final implicit def FSMBuilderSemigroupEvidence[F[
       +_
-  ]: Parallel: Async: Temporal, S, D, Request, Response: Monoid]
-      : Semigroup[FSMBuilder[F, S, D, Request, Response]] =
+  ]: Async, S, D, Request, Response: Monoid]: Semigroup[FSMBuilder[F, S, D, Request, Response]] =
     new Semigroup[FSMBuilder[F, S, D, Request, Response]] {
 
       override def combine(

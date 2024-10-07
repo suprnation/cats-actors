@@ -29,7 +29,7 @@ import scala.annotation.tailrec
 
 object Mailboxes {
 
-  def deadLetterMailbox[F[+_]: Console: Async: Temporal, Request, Response](
+  def deadLetterMailbox[F[+_]: Console: Async, Request, Response](
       actorSystem: ActorSystem[F],
       receiver: Receiver[F]
   ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]] = {

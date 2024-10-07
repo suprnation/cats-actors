@@ -16,7 +16,7 @@
 
 package com.suprnation.actor.fsm
 
-import cats.effect.{Async, Fiber, Temporal}
+import cats.effect.{Async, Fiber}
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.{Scheduler, SystemCommand}
 
@@ -45,7 +45,7 @@ private[fsm] case object SingleMode extends TimerMode {
   override def repeat: Boolean = false
 }
 
-private[fsm] final case class Timer[F[+_]: Async: Temporal, Request](
+private[fsm] final case class Timer[F[+_]: Async, Request](
     name: String,
     msg: Request,
     mode: TimerMode,

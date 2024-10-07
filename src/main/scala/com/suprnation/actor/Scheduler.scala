@@ -34,7 +34,7 @@ case class Scheduler[F[+_]: Async](scheduled: Ref[F, Int]) {
     *   the effect to run
     */
   def scheduleOnce[A](initialDelay: FiniteDuration)(fa: => F[A]): F[A] =
-    scheduled.update(_ + 1) >> 
+    scheduled.update(_ + 1) >>
       fa.delayBy(initialDelay)
         .attemptTap(_ => scheduled.update(_ - 1))
         .onCancel(scheduled.update(_ - 1))
@@ -49,14 +49,13 @@ case class Scheduler[F[+_]: Async](scheduled: Ref[F, Int]) {
     *   the effect to run
     */
   def scheduleOnce_[A](initialDelay: FiniteDuration)(fa: => F[A]): F[Fiber[F, Throwable, A]] =
-    scheduled.update(_ + 1) >> 
+    scheduled.update(_ + 1) >>
       fa.delayBy(initialDelay)
         .attemptTap(_ => scheduled.update(_ - 1))
         .onCancel(scheduled.update(_ - 1))
         .start
 
-
- /** Schedules a `Runnable` to be run repeatedly with an initial delay and
+  /** Schedules a `Runnable` to be run repeatedly with an initial delay and
     * a fixed `delay` between subsequent executions. E.g. if you would like the function to
     * be run after 2 seconds and thereafter every 100ms you would set delay to `Duration.ofSeconds(2)`,
     * and interval to `Duration.ofMillis(100)`.
@@ -76,9 +75,12 @@ case class Scheduler[F[+_]: Async](scheduled: Ref[F, Int]) {
     * @param fa
     *   the effect to run
     */
-  def scheduleWithFixedDelay[A](initialDelay: FiniteDuration, delay: FiniteDuration)(fa: => F[A]): F[Fiber[F, Throwable, Unit]] =
+  def scheduleWithFixedDelay[A](initialDelay: FiniteDuration, delay: FiniteDuration)(
+      fa: => F[A]
+  ): F[Fiber[F, Throwable, Unit]] =
     scheduled.update(_ + 1) >>
-      fa.andWait(delay).foreverM
+      fa.andWait(delay)
+        .foreverM
         .delayBy(initialDelay)
         .attemptTap((_: Either[Throwable, Unit]) => scheduled.update(_ - 1))
         .onCancel(scheduled.update(_ - 1))

@@ -16,9 +16,9 @@
 
 package com.suprnation.actor
 import cats.effect.std.{Console, Supervisor}
-import cats.effect.{Async, Deferred, Temporal}
+import cats.effect.{Async, Deferred}
 import cats.implicits._
-import cats.Applicative
+import cats.{Applicative, Parallel}
 import com.suprnation.actor.Actor.Actor
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor.engine.ActorCell
@@ -121,7 +121,7 @@ trait ActorRefProvider[F[+_]] {
   ): F[ReplyingActorRef[F, Request, Response]]
 }
 
-class LocalActorRefProvider[F[+_]: Async: Temporal: Console](
+class LocalActorRefProvider[F[+_]: Async: Console: Parallel](
     supervisor: Supervisor[F],
     systemShutdownSignal: Deferred[F, Unit],
     system: ActorSystem[F],

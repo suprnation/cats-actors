@@ -17,7 +17,7 @@
 package com.suprnation.actor
 
 import cats.MonadThrow
-import cats.effect.{Async, Concurrent, Temporal}
+import cats.effect.{Async, Concurrent}
 import cats.implicits._
 import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
@@ -27,7 +27,7 @@ import java.util.UUID
 import scala.concurrent.duration.FiniteDuration
 
 object ActorContext {
-  def createActorContext[F[+_]: Async: Temporal, Request, Response](
+  def createActorContext[F[+_]: Async, Request, Response](
       _actorSystem: ActorSystem[F],
       _parent: => NoSendActorRef[F],
       _self: InternalActorRef[F, Request, Response],
@@ -40,14 +40,14 @@ object ActorContext {
         behaviour: ReplyingReceive[F, Request, Response],
         discardOld: Boolean = true
     ): F[Unit] =
-      Temporal[F].delay {
+      Async[F].delay {
         if (discardOld && _creationContext.behaviourStack.size > 1)
           _creationContext.behaviourStack.pop()
         _creationContext.behaviourStack.push(behaviour)
       }
 
     override def unbecome: F[Unit] =
-      Temporal[F].delay {
+      Async[F].delay {
         _creationContext.behaviourStack.pop()
       }
 
@@ -108,7 +108,7 @@ object ActorContext {
       }
 
     override val cancelReceiveTimeout: F[Unit] =
-      Temporal[F]
+      Async[F]
         .delay(self)
         .flatMap((local: InternalActorRef[F, ?, ?]) =>
           local.assertCellActiveAndDo(_.cancelReceiveTimeout)

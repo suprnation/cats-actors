@@ -176,7 +176,7 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
 }
 
 object InternalActorRef {
-  def apply[F[+_]: Async: Temporal: Console, Request, Response](
+  def apply[F[+_]: Async: Console, Request, Response](
       supervisor: Supervisor[F],
       systemShutdownSignal: Deferred[F, Unit],
       name: String,
@@ -210,7 +210,7 @@ object InternalActorRef {
     } yield localActorRef
 }
 
-case class InternalActorRef[F[+_]: Async: Temporal: Console, Request, Response](
+case class InternalActorRef[F[+_]: Async: Console, Request, Response](
     supervisor: Supervisor[F],
     systemShutdownSignal: Deferred[F, Unit],
     name: String,
