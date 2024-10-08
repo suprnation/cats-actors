@@ -16,8 +16,11 @@
 
 package com.suprnation.actor.fsm
 
-import com.suprnation.actor.ActorRef.NoSendActorRef
-import com.suprnation.actor.SystemCommand
+import cats.effect.{Async, Fiber}
+import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
+import com.suprnation.actor.{Scheduler, SystemCommand}
+
+import scala.concurrent.duration.FiniteDuration
 
 /** INTERNAL API
   */
@@ -33,11 +36,6 @@ private[fsm] sealed trait TimerMode {
 }
 
 /** INTERNAL API */
-private[fsm] case object FixedRateMode extends TimerMode {
-  override def repeat: Boolean = true
-}
-
-/** INTERNAL API */
 private[fsm] case object FixedDelayMode extends TimerMode {
   override def repeat: Boolean = true
 }
@@ -45,4 +43,30 @@ private[fsm] case object FixedDelayMode extends TimerMode {
 /** INTERNAL API */
 private[fsm] case object SingleMode extends TimerMode {
   override def repeat: Boolean = false
+}
+
+private[fsm] final case class Timer[F[+_]: Async, Request](
+    name: String,
+    msg: Request,
+    mode: TimerMode,
+    generation: Int,
+    owner: ActorRef[F, Request]
+)(scheduler: Scheduler[F]) {
+
+  def schedule(
+      actor: ActorRef[F, Any],
+      timeout: FiniteDuration
+  ): F[Fiber[F, Throwable, Unit]] =
+    mode match {
+      case SingleMode => scheduler.scheduleOnce_(timeout)(actor ! this)
+      case FixedDelayMode =>
+        scheduler.scheduleWithFixedDelay(timeout, timeout)(actor ! this)
+    }
+}
+
+private[fsm] final case class StoredTimer[F[+_]](
+    generation: Int,
+    fiber: Fiber[F, Throwable, Unit]
+) {
+  def cancel: F[Unit] = fiber.cancel
 }

@@ -30,9 +30,9 @@ trait TrackingActorSyntax {
     def postRestartCount: F[Int] = fA.postRestartCountRef.get
     def preSuspendCount: F[Int] = fA.preSuspendCountRef.get
     def preResumeCount: F[Int] = fA.preResumeCountRef.get
-    def messageBuffer: F[List[Any]] = fA.messageBufferRef.get
-    def restartMessageBuffer: F[List[(Option[Throwable], Option[Any])]] =
+    def messageBuffer: F[Seq[Any]] = fA.messageBufferRef.get
+    def restartMessageBuffer: F[Seq[(Option[Throwable], Option[Any])]] =
       fA.restartMessageBufferRef.get
-    def errorMessageBuffer: F[List[(Throwable, Option[Any])]] = fA.errorMessageBufferRef.get
+    def errorMessageBuffer: F[Seq[(Throwable, Option[Any])]] = fA.errorMessageBufferRef.get
   }
 }

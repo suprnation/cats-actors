@@ -16,19 +16,19 @@
 
 package com.suprnation.typelevel.fsm.instances
 
-import cats.Parallel
-import cats.effect.{Async, Sync, Temporal}
+import cats.Monoid
+import cats.effect.{Async, Sync}
 import cats.implicits._
 import cats.kernel.Semigroup
 import com.suprnation.actor.fsm.FSM.StopEvent
 import com.suprnation.actor.fsm.{FSMBuilder, FSMConfig, Reason, State}
 import com.suprnation.actor.SupervisionStrategy
+import scala.concurrent.duration.FiniteDuration
 
 trait FSMBuilderInstances {
   final implicit def FSMBuilderSemigroupEvidence[F[
       +_
-  ]: Parallel: Async: Temporal, S, D, Request, Response]
-      : Semigroup[FSMBuilder[F, S, D, Request, Response]] =
+  ]: Async, S, D, Request, Response: Monoid]: Semigroup[FSMBuilder[F, S, D, Request, Response]] =
     new Semigroup[FSMBuilder[F, S, D, Request, Response]] {
 
       override def combine(
@@ -73,7 +73,13 @@ trait FSMBuilderInstances {
             },
             (oldState: State[S, D, Request, Response], newState: State[S, D, Request, Response]) =>
               Async[F].whenA(x.config.debug)(x.config.transition(oldState, newState)) >>
-                Async[F].whenA(y.config.debug)(y.config.transition(oldState, newState))
+                Async[F].whenA(y.config.debug)(y.config.transition(oldState, newState)),
+            (name: String, message: Request, timeout: FiniteDuration, repeat: Boolean) =>
+              Async[F].whenA(x.config.debug)(x.config.startTimer(name, message, timeout, repeat)) >>
+                Async[F].whenA(y.config.debug)(y.config.startTimer(name, message, timeout, repeat)),
+            (name: String) =>
+              Async[F].whenA(x.config.debug)(x.config.cancelTimer(name)) >>
+                Async[F].whenA(y.config.debug)(y.config.cancelTimer(name))
           ),
           stateFunctions = x.stateFunctions ++ y.stateFunctions,
           stateTimeouts = x.stateTimeouts ++ y.stateTimeouts,

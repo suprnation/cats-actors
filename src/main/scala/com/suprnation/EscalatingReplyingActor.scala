@@ -16,10 +16,10 @@
 
 package com.suprnation
 
-import cats.Parallel
 import cats.effect._
 import cats.effect.std._
 import cats.implicits._
+import cats.effect.implicits._
 import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.SupervisorStrategy.Escalate
 import com.suprnation.actor.{ActorContext, AllForOneStrategy, ReplyingActor, SupervisionStrategy}
@@ -28,7 +28,7 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 
 object EscalatingReplyingActor {
-  def apply[F[+_]: Async: Parallel: Temporal: Console, Request, Response](
+  def apply[F[+_]: Async: Console, Request, Response](
       _preStart: ActorContext[F, Request, Response] => F[Unit],
       _receive: ActorContext[F, Request, Response] => ReplyingReceive[F, Request, Response]
   ): ReplyingActor[F, Request, Response] =
@@ -37,7 +37,7 @@ object EscalatingReplyingActor {
       override def receive: ReplyingReceive[F, Request, Response] = _receive(context)
     }
 
-  def apply[F[+_]: Async: Parallel: Temporal: Console, Request, Response](
+  def apply[F[+_]: Async: Console, Request, Response](
       _receive: ActorContext[F, Request, Response] => ReplyingReceive[F, Request, Response]
   ): ReplyingActor[F, Request, Response] =
     new EscalatingReplyingActor[F, Request, Response] {
@@ -48,14 +48,14 @@ object EscalatingReplyingActor {
     "Actor not set.  Possibly actor has been stopped or not initialised.  "
   )
 
-  def preStart[F[+_]: Async: Parallel: Temporal: Console](
+  def preStart[F[+_]: Async: Console](
       _preStart: ActorContext[F, Nothing, Any] => F[Unit]
   ): ReplyingActor[F, Nothing, Any] =
     new EscalatingReplyingActor[F, Nothing, Any] {
       override def preStart: F[Unit] = _preStart(context)
     }
 
-  def postStop[F[+_]: Async: Parallel: Temporal: Console](
+  def postStop[F[+_]: Async: Console](
       _postStop: ActorContext[F, Nothing, Any] => F[Unit]
   ): ReplyingActor[F, Nothing, Any] =
     new EscalatingReplyingActor[F, Nothing, Any] {
@@ -63,10 +63,10 @@ object EscalatingReplyingActor {
     }
 }
 
-abstract class EscalatingActor[F[+_]: Console: Async: Parallel: Temporal, Request]
+abstract class EscalatingActor[F[+_]: Console: Async, Request]
     extends EscalatingReplyingActor[F, Request, Any] {}
 
-abstract class EscalatingReplyingActor[F[+_]: Console: Async: Parallel: Temporal, Request, Response]
+abstract class EscalatingReplyingActor[F[+_]: Console: Async, Request, Response]
     extends ReplyingActor[F, Request, Response] {
   override def supervisorStrategy: SupervisionStrategy[F] =
     AllForOneStrategy[F](maxNrOfRetries = 0, withinTimeRange = 1 minute) { case _: Throwable =>
@@ -80,8 +80,8 @@ abstract class EscalatingReplyingActor[F[+_]: Console: Async: Parallel: Temporal
         Console[F].println(
           s"Actor [${this.self.path}] has been suspended due [Error: $t] [Message: $m]"
         ) >>
-          Sync[F].blocking(t.printStackTrace())
-      case _ => Concurrent[F].unit
+          Async[F].blocking(t.printStackTrace())
+      case _ => Async[F].unit
     }
 
 }

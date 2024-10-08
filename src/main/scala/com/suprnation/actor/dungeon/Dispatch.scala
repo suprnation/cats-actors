@@ -17,7 +17,7 @@
 package com.suprnation.actor.dungeon
 
 import cats.effect.std.Console
-import cats.effect.{Async, Deferred, Temporal}
+import cats.effect.{Async, Deferred}
 import cats.syntax.all._
 import com.suprnation.actor.Exception.Catcher
 import com.suprnation.actor.dispatch._
@@ -31,25 +31,25 @@ import scala.util.control.{NoStackTrace, NonFatal}
 
 object Dispatch {
 
-  def createContext[F[+_]: Async: Temporal: Console, Request, Response](
+  def createContext[F[+_]: Async: Console, Request, Response](
       name: String
   ): F[DispatchContext[F, Request, Response]] =
     Dispatch.createMailbox[F, Request](name).map(DispatchContext(_))
 
-  private def createMailbox[F[+_]: Async: Temporal: Console, Request](
+  private def createMailbox[F[+_]: Async: Console, Request](
       name: String
   ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]] =
     Mailboxes
       .createMailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]](name)
 
-  case class DispatchContext[F[+_]: Async: Temporal: Console, Request, Response](
+  case class DispatchContext[F[+_]: Async: Console, Request, Response](
       var mailbox: Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]
   ) {
 
     def swapMailbox(
         _mailbox: Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]
     ): F[Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]]] =
-      Temporal[F]
+      Async[F]
         .delay {
           val previousMailbox
               : Mailbox[F, SystemMessageEnvelope[F], EnvelopeWithDeferred[F, Request]] =
@@ -76,7 +76,7 @@ trait Dispatch[F[+_], Request, Response] {
           parent.internalActorRef.flatMap(internal =>
             internal.sendSystemMessage(Envelope.system(SystemMessage.Supervise(self)))
           )
-        } else concurrentF.unit
+        } else asyncF.unit
     } yield ()
 
   override def hasMessages: F[Boolean] = dispatchContext.mailbox.hasMessage

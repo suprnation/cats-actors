@@ -117,21 +117,21 @@ trait ActorRefSyntax {
         case _ => (this.actorRef.path.name -> 0).pure[F]
       }
 
-    def messageBuffer: F[(String, List[Any])] =
+    def messageBuffer: F[(String, Seq[Any])] =
       actorRef.cell >>= (_.actor) >>= {
         case trackingActor: TrackingActor[F, ?, ?] =>
           trackingActor.messageBuffer.map(this.actorRef.path.name -> _)
         case _ => (this.actorRef.path.name -> List.empty[Any]).pure[F]
       }
 
-    def restartMessageBuffer: F[(String, List[Any])] =
+    def restartMessageBuffer: F[(String, Seq[Any])] =
       actorRef.cell >>= (_.actor) >>= {
         case trackingActor: TrackingActor[F, ?, ?] =>
           trackingActor.restartMessageBuffer.map(this.actorRef.path.name -> _)
         case _ => (this.actorRef.path.name -> List.empty[Any]).pure[F]
       }
 
-    def errorMessageBuffer: F[(String, List[(Throwable, Option[Any])])] =
+    def errorMessageBuffer: F[(String, Seq[(Throwable, Option[Any])])] =
       actorRef.cell >>= (_.actor) >>= {
         case trackingActor: TrackingActor[F, ?, ?] =>
           trackingActor.errorMessageBuffer.map(this.actorRef.path.name -> _)

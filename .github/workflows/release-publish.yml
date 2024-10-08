@@ -54,12 +54,12 @@ jobs:
 
       - name: Build and publish for Scala 3
         run: |
-          sbt ++3.3.0 clean compile publishM2
+          sbt ++3.3.4 clean compile publishM2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish for Scala 3
         run: |
-          sbt ++3.3.0 publish
+          sbt ++3.3.4 publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -17,12 +17,12 @@
 package com.suprnation.actor.debug
 
 import cats.Parallel
-import cats.effect.std.Console
 import cats.effect.{Concurrent, Ref, Temporal}
 import cats.implicits._
 import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.utils.Unsafe
 import com.suprnation.actor.{ActorConfig, ReplyingActor, SupervisionStrategy}
+import scala.collection.immutable.Queue
 
 object TrackingActor {
   type ActorRefs[F[_]] = (
@@ -33,12 +33,12 @@ object TrackingActor {
       Ref[F, Int],
       Ref[F, Int],
       Ref[F, Int],
-      Ref[F, List[Any]],
-      Ref[F, List[(Option[Throwable], Option[Any])]],
-      Ref[F, List[(Throwable, Option[Any])]]
+      Ref[F, Queue[Any]],
+      Ref[F, Queue[(Option[Throwable], Option[Any])]],
+      Ref[F, Queue[(Throwable, Option[Any])]]
   )
 
-  def create[F[+_]: Parallel: Concurrent: Temporal: Console, Request, Response](
+  def create[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
       cache: Ref[F, Map[String, ActorRefs[F]]],
       stableName: String,
       proxy: ReplyingActor[F, Request, Response]
@@ -51,9 +51,9 @@ object TrackingActor {
         F[Ref[F, Int]],
         F[Ref[F, Int]],
         F[Ref[F, Int]],
-        F[Ref[F, List[Any]]],
-        F[Ref[F, List[(Option[Throwable], Option[Any])]]],
-        F[Ref[F, List[(Throwable, Option[Any])]]]
+        F[Ref[F, Queue[Any]]],
+        F[Ref[F, Queue[(Option[Throwable], Option[Any])]]],
+        F[Ref[F, Queue[(Throwable, Option[Any])]]]
     ) = (
       Ref.of[F, Int](0),
       Ref.of[F, Int](0),
@@ -62,11 +62,11 @@ object TrackingActor {
       Ref.of[F, Int](0),
       Ref.of[F, Int](0),
       Ref.of[F, Int](0),
-      Ref.of[F, List[Any]](List.empty[Any]),
-      Ref.of[F, List[(Option[Throwable], Option[Any])]](
-        List.empty[(Option[Throwable], Option[Any])]
+      Ref.of[F, Queue[Any]](Queue.empty[Any]),
+      Ref.of[F, Queue[(Option[Throwable], Option[Any])]](
+        Queue.empty[(Option[Throwable], Option[Any])]
       ),
-      Ref.of[F, List[(Throwable, Option[Any])]](List.empty[(Throwable, Option[Any])])
+      Ref.of[F, Queue[(Throwable, Option[Any])]](Queue.empty[(Throwable, Option[Any])])
     )
 
     cache.get.flatMap { currentCache =>
@@ -126,7 +126,7 @@ object TrackingActor {
   }
 }
 
-final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal: Console, Request, Response](
+final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
     initCountRef: Ref[F, Int],
     preStartCountRef: Ref[F, Int],
     postStopCountRef: Ref[F, Int],
@@ -134,21 +134,21 @@ final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal: Console, R
     postRestartCountRef: Ref[F, Int],
     preSuspendCountRef: Ref[F, Int],
     preResumeCountRef: Ref[F, Int],
-    messageBufferRef: Ref[F, List[Any]],
-    restartMessageBufferRef: Ref[F, List[(Option[Throwable], Option[Any])]],
-    errorMessageBufferRef: Ref[F, List[(Throwable, Option[Any])]],
+    messageBufferRef: Ref[F, Queue[Any]],
+    restartMessageBufferRef: Ref[F, Queue[(Option[Throwable], Option[Any])]],
+    errorMessageBufferRef: Ref[F, Queue[(Throwable, Option[Any])]],
     proxy: ReplyingActor[F, Request, Response]
 ) extends ReplyingActor[F, Request, Response]
     with ActorConfig {
 
   override val receive: ReplyingReceive[F, Request, Response] = { case m =>
-    messageBufferRef.update(_ ++ List(m)) >> Console[F].println(m) >> proxy.receive(m)
+    messageBufferRef.update(_ :+ m) >> proxy.receive(m)
   }
 
   override def supervisorStrategy: SupervisionStrategy[F] = proxy.supervisorStrategy
 
   override def onError(reason: Throwable, message: Option[Any]): F[Unit] =
-    errorMessageBufferRef.update(_ ++ List((reason, message))) >>
+    errorMessageBufferRef.update(_ :+ (reason, message)) >>
       proxy.onError(reason, message)
 
   override def init: F[Unit] =
@@ -172,7 +172,7 @@ final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal: Console, R
     postRestartCountRef.update(_ + 1) >> proxy.postRestart(reason)
 
   override def preRestart(reason: Option[Throwable], message: Option[Any]): F[Unit] =
-    restartMessageBufferRef.update(_ ++ List(reason -> message)) >> preRestartCountRef.update(
+    restartMessageBufferRef.update(_ :+ (reason -> message)) >> preRestartCountRef.update(
       _ + 1
     ) >> proxy.preRestart(reason, message)
 

@@ -17,6 +17,7 @@
 package com.suprnation.actor
 
 import cats.effect._
+import cats.effect.implicits._
 import cats.effect.std.{Console, Queue, Supervisor}
 import cats.syntax.all._
 import cats.{Applicative, Parallel}
@@ -43,18 +44,18 @@ trait RootActorCreator[F[+_]] {
 
 object ActorSystem {
   // Concurrent.pure needs to change
-  def apply[F[+_]: Console: Parallel: Async: Temporal](): Resource[F, ActorSystem[F]] = apply(
+  def apply[F[+_]: Console: Async](): Resource[F, ActorSystem[F]] = apply(
     UUID.randomUUID().toString
   )
 
-  def apply[F[+_]: Console: Parallel: Async: Temporal](
+  def apply[F[+_]: Console: Async](
       systemName: String
   ): Resource[F, ActorSystem[F]] = apply(
     systemName,
     message => Console[F].println(s"[EventBus] => $message")
   )
 
-  def apply[F[+_]: Parallel: Async: Temporal: Console](
+  def apply[F[+_]: Async: Console](
       systemName: String,
       eventStreamListener: Any => F[Unit]
   ): Resource[F, ActorSystem[F]] =
@@ -179,8 +180,7 @@ object ActorSystem {
     } yield actorSystem
 
   // Create the case class so that we have a proper class name in the logs
-  private case class UserGuardian[F[+_]: Console: Parallel: Concurrent: Temporal]()
-      extends Actor[F, Any] {
+  private case class UserGuardian[F[+_]: Console: Temporal]() extends Actor[F, Any] {
 
     override def supervisorStrategy: SupervisionStrategy[F] = TerminateActorSystem(context.system)
 

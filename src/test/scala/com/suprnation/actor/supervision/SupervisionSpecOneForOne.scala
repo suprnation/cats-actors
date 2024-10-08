@@ -1,3 +1,19 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.actor.supervision
 
 import cats.effect.IO
@@ -25,7 +41,7 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         (msg: Any) =>
           msg match {
             case com.suprnation.actor.event.Warning(_, clazz, msg)
-              if clazz == classOf[OneForOneStrategy[IO]] =>
+                if clazz == classOf[OneForOneStrategy[IO]] =>
               eventBus.update(_ ++ List(msg))
             case _ => IO.unit
           }
@@ -76,23 +92,23 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
       eventBuffer
     )).unsafeToFuture().map {
       case (
-        parentReference,
-        parentMessageBuffer,
-        parentErrorMessageBuffer,
-        parentInitCounts,
-        parentSuspensionCount,
-        parentResumeCount,
-        trackedChildren,
-        childrenInitCounts,
-        childrenPreSuspensionCounts,
-        childrenPreResumeCounts,
-        childrenPostStopCounts,
-        childrenPreRestartCounts,
-        childrenMessageBuffers,
-        childrenRestartBuffers,
-        childrenErrorMessageBuffers,
-        eventBuffer
-        ) =>
+            parentReference,
+            parentMessageBuffer,
+            parentErrorMessageBuffer,
+            parentInitCounts,
+            parentSuspensionCount,
+            parentResumeCount,
+            trackedChildren,
+            childrenInitCounts,
+            childrenPreSuspensionCounts,
+            childrenPreResumeCounts,
+            childrenPostStopCounts,
+            childrenPreRestartCounts,
+            childrenMessageBuffers,
+            childrenRestartBuffers,
+            childrenErrorMessageBuffers,
+            eventBuffer
+          ) =>
         println(trackedChildren)
 
         trackedChildren.size should be(1)
@@ -162,7 +178,7 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         (msg: Any) =>
           msg match {
             case com.suprnation.actor.event.Warning(_, clazz, msg)
-              if clazz == classOf[OneForOneStrategy[IO]] =>
+                if clazz == classOf[OneForOneStrategy[IO]] =>
               eventBus.update(_ ++ List(msg))
             case _ => IO.unit
           }
@@ -214,23 +230,23 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
       eventBuffer
     )).unsafeToFuture().map {
       case (
-        parentReference,
-        parentMessageBuffer,
-        parentErrorMessageBuffer,
-        parentInitCounts,
-        parentSuspensionCount,
-        parentResumeCount,
-        trackedChildren,
-        childrenInitCounts,
-        childrenPreSuspensionCounts,
-        childrenPreResumeCounts,
-        childrenPostStopCounts,
-        childrenPreRestartCounts,
-        childrenMessageBuffers,
-        childrenRestartBuffers,
-        childrenErrorMessageBuffers,
-        eventBuffer
-        ) =>
+            parentReference,
+            parentMessageBuffer,
+            parentErrorMessageBuffer,
+            parentInitCounts,
+            parentSuspensionCount,
+            parentResumeCount,
+            trackedChildren,
+            childrenInitCounts,
+            childrenPreSuspensionCounts,
+            childrenPreResumeCounts,
+            childrenPostStopCounts,
+            childrenPreRestartCounts,
+            childrenMessageBuffers,
+            childrenRestartBuffers,
+            childrenErrorMessageBuffers,
+            eventBuffer
+          ) =>
         println(trackedChildren)
 
         trackedChildren.size should be(4)
@@ -314,7 +330,7 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         (msg: Any) =>
           msg match {
             case com.suprnation.actor.event.Warning(_, clazz, msg)
-              if clazz == classOf[OneForOneStrategy[IO]] =>
+                if clazz == classOf[OneForOneStrategy[IO]] =>
               eventBus.update(_ ++ List(msg))
             case _ => IO.unit
           }
@@ -366,23 +382,23 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
       eventBuffer
     )).unsafeToFuture().map {
       case (
-        parentReference,
-        parentMessageBuffer,
-        parentErrorMessageBuffer,
-        parentInitCounts,
-        parentSuspensionCount,
-        parentResumeCount,
-        trackedChildren,
-        childrenInitCounts,
-        childrenPreSuspensionCounts,
-        childrenPreResumeCounts,
-        childrenPostStopCounts,
-        childrenPreRestartCounts,
-        childrenMessageBuffers,
-        childrenRestartBuffers,
-        childrenErrorMessageBuffers,
-        eventBuffer
-        ) =>
+            parentReference,
+            parentMessageBuffer,
+            parentErrorMessageBuffer,
+            parentInitCounts,
+            parentSuspensionCount,
+            parentResumeCount,
+            trackedChildren,
+            childrenInitCounts,
+            childrenPreSuspensionCounts,
+            childrenPreResumeCounts,
+            childrenPostStopCounts,
+            childrenPreRestartCounts,
+            childrenMessageBuffers,
+            childrenRestartBuffers,
+            childrenErrorMessageBuffers,
+            eventBuffer
+          ) =>
         println(trackedChildren)
 
         trackedChildren.size should be(4)
@@ -469,7 +485,7 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         (msg: Any) =>
           msg match {
             case com.suprnation.actor.event.Error(_, _, clazz, msg)
-              if clazz == classOf[OneForOneStrategy[IO]] =>
+                if clazz == classOf[OneForOneStrategy[IO]] =>
               eventBus.update(_ ++ List(msg))
             case _ => IO.unit
           }
@@ -527,24 +543,24 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
       eventBuffer
     )).unsafeToFuture().map {
       case (
-        parentReference,
-        parentMessageBuffer,
-        parentErrorMessageBuffer,
-        parentInitCounts,
-        parentSuspensionCount,
-        parentResumeCount,
-        trackedChildren,
-        childrenInitCounts,
-        childrenPreSuspensionCounts,
-        childrenPreResumeCounts,
-        childrenPostStopCounts,
-        childrenPreRestartCounts,
-        childrenPostRestartCounts,
-        childrenMessageBuffers,
-        childrenRestartBuffers,
-        childrenErrorMessageBuffers,
-        eventBuffer
-        ) =>
+            parentReference,
+            parentMessageBuffer,
+            parentErrorMessageBuffer,
+            parentInitCounts,
+            parentSuspensionCount,
+            parentResumeCount,
+            trackedChildren,
+            childrenInitCounts,
+            childrenPreSuspensionCounts,
+            childrenPreResumeCounts,
+            childrenPostStopCounts,
+            childrenPreRestartCounts,
+            childrenPostRestartCounts,
+            childrenMessageBuffers,
+            childrenRestartBuffers,
+            childrenErrorMessageBuffers,
+            eventBuffer
+          ) =>
         trackedChildren.size should be(1)
         parentMessageBuffer._2.size should be(6)
         parentMessageBuffer._2.toSet should contain.allOf(
@@ -630,7 +646,7 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         (msg: Any) =>
           msg match {
             case com.suprnation.actor.event.Error(_, _, clazz, msg)
-              if clazz == classOf[OneForOneStrategy[IO]] =>
+                if clazz == classOf[OneForOneStrategy[IO]] =>
               eventBus.update(_ ++ List(msg))
             case _ => IO.unit
           }
@@ -688,24 +704,24 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
       eventBuffer
     )).unsafeToFuture().map {
       case (
-        parentReference,
-        parentMessageBuffer,
-        parentErrorMessageBuffer,
-        parentInitCounts,
-        parentSuspensionCount,
-        parentResumeCount,
-        trackedChildren,
-        childrenInitCounts,
-        childrenPreSuspensionCounts,
-        childrenPreResumeCounts,
-        childrenPostStopCounts,
-        childrenPreRestartCounts,
-        childrenPostRestartCounts,
-        childrenMessageBuffers,
-        childrenRestartBuffers,
-        childrenErrorMessageBuffers,
-        eventBuffer
-        ) =>
+            parentReference,
+            parentMessageBuffer,
+            parentErrorMessageBuffer,
+            parentInitCounts,
+            parentSuspensionCount,
+            parentResumeCount,
+            trackedChildren,
+            childrenInitCounts,
+            childrenPreSuspensionCounts,
+            childrenPreResumeCounts,
+            childrenPostStopCounts,
+            childrenPreRestartCounts,
+            childrenPostRestartCounts,
+            childrenMessageBuffers,
+            childrenRestartBuffers,
+            childrenErrorMessageBuffers,
+            eventBuffer
+          ) =>
         trackedChildren.size should be(4)
         parentMessageBuffer._2.size should be(6)
         parentMessageBuffer._2.toSet should contain.allOf(
@@ -806,7 +822,7 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         (msg: Any) =>
           msg match {
             case com.suprnation.actor.event.Error(_, _, clazz, msg)
-              if clazz == classOf[OneForOneStrategy[IO]] =>
+                if clazz == classOf[OneForOneStrategy[IO]] =>
               eventBus.update(_ ++ List(msg))
             case Debug(logSource, _, DeadLetter(msg, _, _)) => deadLetterBus.update(_ ++ List(msg))
             case msg                                        => IO.unit
@@ -866,25 +882,25 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
       deadLetterBuffer
     )).unsafeToFuture().map {
       case (
-        parentReference,
-        parentMessageBuffer,
-        parentErrorMessageBuffer,
-        parentInitCounts,
-        parentSuspensionCount,
-        parentResumeCount,
-        trackedChildren,
-        childrenInitCounts,
-        childrenPreSuspensionCounts,
-        childrenPreResumeCounts,
-        childrenPostStopCounts,
-        childrenPreRestartCounts,
-        childrenPostRestartCounts,
-        childrenMessageBuffers,
-        childrenRestartBuffers,
-        childrenErrorMessageBuffers,
-        eventBuffer,
-        deadLetterBuffer
-        ) =>
+            parentReference,
+            parentMessageBuffer,
+            parentErrorMessageBuffer,
+            parentInitCounts,
+            parentSuspensionCount,
+            parentResumeCount,
+            trackedChildren,
+            childrenInitCounts,
+            childrenPreSuspensionCounts,
+            childrenPreResumeCounts,
+            childrenPostStopCounts,
+            childrenPreRestartCounts,
+            childrenPostRestartCounts,
+            childrenMessageBuffers,
+            childrenRestartBuffers,
+            childrenErrorMessageBuffers,
+            eventBuffer,
+            deadLetterBuffer
+          ) =>
         trackedChildren.size should be(1)
         parentMessageBuffer._2.size should be(4)
         parentMessageBuffer._2.toSet should contain.allOf(
@@ -957,7 +973,7 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
         (msg: Any) =>
           msg match {
             case com.suprnation.actor.event.Error(_, _, clazz, msg)
-              if clazz == classOf[OneForOneStrategy[IO]] =>
+                if clazz == classOf[OneForOneStrategy[IO]] =>
               eventBus.update(_ ++ List(msg))
             case Debug(logSource, _, DeadLetter(msg, _, _)) => deadLetterBus.update(_ ++ List(msg))
             case msg                                        => IO.unit
@@ -1018,25 +1034,25 @@ class SupervisionSpecOneForOne extends AsyncFlatSpec with Matchers {
       deadLetterBuffer
     )).unsafeToFuture().map {
       case (
-        parentReference,
-        parentMessageBuffer,
-        parentErrorMessageBuffer,
-        parentInitCounts,
-        parentSuspensionCount,
-        parentResumeCount,
-        trackedChildren,
-        childrenInitCounts,
-        childrenPreSuspensionCounts,
-        childrenPreResumeCounts,
-        childrenPostStopCounts,
-        childrenPreRestartCounts,
-        childrenPostRestartCounts,
-        childrenMessageBuffers,
-        childrenRestartBuffers,
-        childrenErrorMessageBuffers,
-        eventBuffer,
-        deadLetterBuffer
-        ) =>
+            parentReference,
+            parentMessageBuffer,
+            parentErrorMessageBuffer,
+            parentInitCounts,
+            parentSuspensionCount,
+            parentResumeCount,
+            trackedChildren,
+            childrenInitCounts,
+            childrenPreSuspensionCounts,
+            childrenPreResumeCounts,
+            childrenPostStopCounts,
+            childrenPreRestartCounts,
+            childrenPostRestartCounts,
+            childrenMessageBuffers,
+            childrenRestartBuffers,
+            childrenErrorMessageBuffers,
+            eventBuffer,
+            deadLetterBuffer
+          ) =>
         trackedChildren.size should be(4)
         parentMessageBuffer._2.size should be(4)
         parentMessageBuffer._2.toSet should contain.allOf(

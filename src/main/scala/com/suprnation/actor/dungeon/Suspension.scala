@@ -23,7 +23,7 @@ trait Suspension[F[+_], Request, Response] {
   self: ActorCell[F, Request, Response] =>
 
   def resumeNonRecursive: F[Unit] =
-    (actorOp >>= (_.fold(concurrentF.unit)(a => a.aroundPreResume()))) >>
+    (actorOp >>= (_.fold(asyncF.unit)(a => a.aroundPreResume()))) >>
       dispatchContext.mailbox.resume
 
   def suspendNonRecursive(causedByFailure: Option[Throwable]): F[Unit] =
@@ -31,7 +31,7 @@ trait Suspension[F[+_], Request, Response] {
       maybeActor <- actorOp
       _ <- maybeActor match {
         case Some(actor) => actor.aroundPreSuspend(causedByFailure, self.currentMessage)
-        case None        => concurrentF.unit
+        case None        => asyncF.unit
       }
     } yield ()) >> dispatchContext.mailbox.suspend
 

@@ -16,7 +16,6 @@
 
 package com.suprnation.actor.engine
 
-import cats.Parallel
 import cats.effect._
 import cats.effect.implicits._
 import cats.effect.std.{Console, Supervisor}
@@ -44,7 +43,7 @@ object ActorCell {
     if (uid == undefinedUid) newUid()
     else uid
   }
-  def apply[F[+_]: Async: Temporal: Console, Request, Response](
+  def apply[F[+_]: Async: Console, Request, Response](
       supervisor: Supervisor[F],
       systemShutdownSignal: Deferred[F, Unit],
       _self: InternalActorRef[F, Request, Response],
@@ -72,10 +71,7 @@ object ActorCell {
 
       // Implicits
       override val asyncF: Async[F] = implicitly[Async[F]]
-      override val concurrentF: Concurrent[F] = implicitly[Concurrent[F]]
-      override val temporalF: Temporal[F] = implicitly[Temporal[F]]
       override val consoleF: Console[F] = implicitly[Console[F]]
-      override val parallelF: Parallel[F] = implicitly[Parallel[F]]
 
       // Core Plugin
       override val creationContext: dungeon.Creation.CreationContext[F, Request, Response] =
@@ -168,7 +164,7 @@ object ActorCell {
           _ <-
             if (_actorSystem.settings.DebugAutoReceive) {
               publish(Debug(_self.path.toString, _, "Received AutoReceiveMessage " + msg))
-            } else concurrentF.unit
+            } else asyncF.unit
           _ <- msg.message match {
             case t: Terminated[?, ?] => receivedTerminated(t.asInstanceOf[Terminated[F, Request]])
             case Kill                => Concurrent[F].raiseError(ActorKilledException("Kill"))
@@ -291,7 +287,7 @@ object ActorCell {
 
       override def finishTerminate: F[Unit] =
         creationContext.actorOp
-          .fold(concurrentF.unit)(_.aroundPostStop())
+          .fold(asyncF.unit)(_.aroundPostStop())
           .recoverWith { case NonFatal(e) =>
             publish(event.Error(e, self.path.toString, _, e.getMessage))
           }
@@ -359,10 +355,7 @@ trait ActorCell[F[+_], Request, Response]
   with ActorRefProvider[F] {
 // format: on
 
-  implicit val concurrentF: Concurrent[F]
   implicit val asyncF: Async[F]
-  implicit val parallelF: Parallel[F]
-  implicit val temporalF: Temporal[F]
   implicit val consoleF: Console[F]
 
   val dispatchContext: DispatchContext[F, Any, Any]

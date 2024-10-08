@@ -145,16 +145,22 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
   def widenRequest[U >: Request @uncheckedVariance]: ActorRef[F, U]
 
   // Here we could use a Message[_] but not sure.. check the type.
-  def ?(fa: => Request): F[Response]
+  def ?(fa: => Request)(implicit
+      sender: Option[ActorRef[F, Nothing]] = None
+  ): F[Response]
 
-  def ?*(fa: => Any): F[Any]
+  def ?*(fa: => Any)(implicit
+      sender: Option[ActorRef[F, Nothing]] = None
+  ): F[Any]
 
   /** Wait for the computation to be processed by the inbound queue and disregard the result.
     *
     * @param fa
     *   the computation to be sent and processed by the queue.
     */
-  def ?!(fa: => Request): F[Any] = ?*(fa)
+  def ?!(fa: => Request)(implicit
+      sender: Option[ActorRef[F, Nothing]] = None
+  ): F[Any] = ?*(fa)
 
   /** Narrow the type of this `ActorRef`, which is always a safe operation.
     */
@@ -170,7 +176,7 @@ trait ReplyingActorRef[F[+_], -Request, +Response] {
 }
 
 object InternalActorRef {
-  def apply[F[+_]: Async: Temporal: Console, Request, Response](
+  def apply[F[+_]: Async: Console, Request, Response](
       supervisor: Supervisor[F],
       systemShutdownSignal: Deferred[F, Unit],
       name: String,
@@ -204,7 +210,7 @@ object InternalActorRef {
     } yield localActorRef
 }
 
-case class InternalActorRef[F[+_]: Async: Temporal: Console, Request, Response](
+case class InternalActorRef[F[+_]: Async: Console, Request, Response](
     supervisor: Supervisor[F],
     systemShutdownSignal: Deferred[F, Unit],
     name: String,
@@ -219,16 +225,18 @@ case class InternalActorRef[F[+_]: Async: Temporal: Console, Request, Response](
   val start: F[Fiber[F, Throwable, Unit]] = assertCellActiveAndDo(actorCell => actorCell.start)
   val stop: F[Unit] = assertCellActiveAndDo(actorCell => actorCell.stop)
 
-  def ?(fa: => Request): F[Response] = (this ?* fa).map(_.asInstanceOf[Response])
+  def ?(fa: => Request)(implicit sender: Option[NoSendActorRef[F]] = None): F[Response] =
+    (this ?* fa).map(_.asInstanceOf[Response])
 
-  def ?*(fa: => Any): F[Any] = assertCellActiveAndDo[Any](actorCell =>
-    for {
-      // Here we need to add the logic not to push to the queue anymore if it shutdown...
-      deferred <- Deferred[F, Any]
-      _ <- actorCell.sendMessage(Envelope(fa), Option(deferred))
-      result <- deferred.get
-    } yield result
-  )
+  def ?*(fa: => Any)(implicit sender: Option[NoSendActorRef[F]] = None): F[Any] =
+    assertCellActiveAndDo[Any](actorCell =>
+      for {
+        // Here we need to add the logic not to push to the queue anymore if it shutdown...
+        deferred <- Deferred[F, Any]
+        _ <- actorCell.sendMessage(Envelope(fa, sender, receiver), Option(deferred))
+        result <- deferred.get
+      } yield result
+    )
 
   /** Send a system message.
     */

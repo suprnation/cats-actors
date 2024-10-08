@@ -18,6 +18,7 @@ package com.suprnation.actor.dungeon
 
 import cats.effect.std.{Semaphore, Supervisor}
 import cats.effect.{Concurrent, Deferred, Ref}
+import cats.effect.implicits._
 import cats.implicits._
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
 import com.suprnation.actor._
@@ -63,7 +64,7 @@ trait Children[F[+_], Request, Response] {
       children <- childrenRefs.get
       _ <- children
         .getByRef(actor)
-        .fold(concurrentF.unit)(_ => childrenContext.childrenRefs.update(c => c.shallDie(actor)))
+        .fold(asyncF.unit)(_ => childrenContext.childrenRefs.update(c => c.shallDie(actor)))
       _ <- actor.asInstanceOf[InternalActorRef[F, Nothing, Any]].stop
     } yield ()
 

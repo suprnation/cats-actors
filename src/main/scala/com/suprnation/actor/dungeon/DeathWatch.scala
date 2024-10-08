@@ -18,8 +18,8 @@ package com.suprnation.actor.dungeon
 
 import cats.effect.Ref
 import cats.effect.kernel.Concurrent
-import cats.syntax.all._
-import cats.effect.syntax.all._
+import cats.implicits._
+import cats.effect.implicits._
 import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor.dispatch.SystemMessage.{DeathWatchNotification, UnWatch, Watch}
 import com.suprnation.actor.dungeon.DeathWatch.DeathWatchContext
@@ -65,7 +65,7 @@ trait DeathWatch[F[+_], Request, Response] {
     for {
       watching <- deathWatchContext.watchingRef.get
       _ <- watching.get(actor) match {
-        case None => concurrentF.unit
+        case None => asyncF.unit
         case Some(message) =>
           deathWatchContext.watchingRef.update(watching => watching - actor) >>
             asyncF.ifM(isTerminated)(
@@ -75,7 +75,7 @@ trait DeathWatch[F[+_], Request, Response] {
 
       }
       children <- childrenRefs.get
-      _ <- children.getByRef(actor).fold(concurrentF.unit)(_ => handleChildTerminated(actor))
+      _ <- children.getByRef(actor).fold(asyncF.unit)(_ => handleChildTerminated(actor))
     } yield ()
 
   protected def tellWatcherWeDied(): F[Unit] = {
@@ -92,7 +92,7 @@ trait DeathWatch[F[+_], Request, Response] {
               )
             )(self.self)
           )
-      } else concurrentF.unit
+      } else asyncF.unit
 
     (for {
       watchedBy <- deathWatchContext.watchedByRef.get
@@ -126,7 +126,7 @@ trait DeathWatch[F[+_], Request, Response] {
               deathWatchContext.watchingRef.set(Map.empty)
             )
 
-        } else concurrentF.unit
+        } else asyncF.unit
     } yield ()
 
   protected def addWatcher(
@@ -147,9 +147,9 @@ trait DeathWatch[F[+_], Request, Response] {
                   .pure[F]
                   .ifM(
                     publish(Debug(self.self.path.toString, _, s"now watched by $watcher")),
-                    concurrentF.unit
+                    asyncF.unit
                   )
-            } else concurrentF.unit
+            } else asyncF.unit
           )
         } else if (!watcheeSelf && watcherSelf) {
           watch(watchee, onTerminated)
@@ -183,12 +183,12 @@ trait DeathWatch[F[+_], Request, Response] {
                   } else checkWatchingSame(a, onTerminated)
               } yield ()
             } else {
-              concurrentF.pure(a)
+              asyncF.pure(a)
             }
         } yield a
 
       case unexpected =>
-        concurrentF.raiseError(
+        asyncF.raiseError(
           new IllegalArgumentException(s"ActorRef is not internal: $unexpected")
         )
     }
@@ -208,13 +208,13 @@ trait DeathWatch[F[+_], Request, Response] {
       previous = watching.get(ref)
       _ <-
         if (previous != newMessage) {
-          concurrentF.raiseError(
+          asyncF.raiseError(
             new IllegalStateException(
               s"Watch($self, $ref) termination message was not overwritten from [$previous] to [$newMessage]. " +
                 s"If this was intended, unwatch first before using `watch` / `watchWith` with another message."
             )
           )
-        } else concurrentF.unit
+        } else asyncF.unit
     } yield ()
 
   protected def removeWatcher(watchee: NoSendActorRef[F], watcher: NoSendActorRef[F]): F[Unit] =
@@ -231,9 +231,9 @@ trait DeathWatch[F[+_], Request, Response] {
                   .pure[F]
                   .ifM(
                     publish(Debug(self.self.path.toString, _, s"no longer watched by $watcher")),
-                    concurrentF.unit
+                    asyncF.unit
                   )
-            else concurrentF.unit
+            else asyncF.unit
           )
         } else if (!watcheeSelf && watcherSelf) {
           unwatch(watchee)
@@ -264,11 +264,11 @@ trait DeathWatch[F[+_], Request, Response] {
                   .update(watching => watching - a)
                   .as(Some(a))
 
-            } else concurrentF.unit
+            } else asyncF.unit
 
         } yield a
       case unexpected =>
-        concurrentF.raiseError(
+        asyncF.raiseError(
           new IllegalArgumentException(s"ActorRef is not internal: $unexpected")
         )
     }
