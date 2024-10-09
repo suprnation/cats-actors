@@ -65,13 +65,24 @@ trait ActorRefDebugSyntax {
         .map((actorRef: NoSendActorRef[F]) => actorRef.cell.map(_.system))
         .sequence
 
-    def waitForIdle: F[Unit] =
-      actorRefs.waitForIdleDeferred.flatMap(_.get)
+    def waitForIdle(checkSchedulerIdle: Boolean): F[Unit] =
+      actorRefs.waitForIdleDeferred(checkSchedulerIdle).flatMap(_.get)
 
-    def waitForIdleDeferred: F[Deferred[F, Unit]] =
+    def waitForIdleDeferred(checkSchedulerIdle: Boolean): F[Deferred[F, Unit]] = {
+      def checkIfMailboxIdle(): F[Unit] = actorRefs.parTraverse_(_.waitForIdle)
+
+      def checkIfSchedulerIdle(system: ActorSystem[F]): F[Unit] =
+        system.scheduler.isIdle.ifM(
+          // If the scheduler is idle we simply return
+          Concurrent[F].unit,
+          // Scheduler is not idle so wait for the scheduler to clear, but in return the scheduled messages might have created more messages which scheduler other messages
+          // an so on and so forth..
+          waitForIdleDeferredOnIdleF(system.scheduler.isIdle)
+            .flatMap(_.get) >> waitForIdle(checkSchedulerIdle)
+        )
+
       for {
         systems <- systemsF
-        system = systems.head
         deferred <-
           if (systems.distinct.size != 1) {
             Concurrent[F].raiseError(
@@ -83,15 +94,8 @@ trait ActorRefDebugSyntax {
             Deferred[F, Unit].flatMap { systemIdle =>
               def waitForIdle: F[Unit] =
                 for {
-                  _ <- actorRefs.parTraverse_(_.waitForIdle)
-                  _ <- system.scheduler.isIdle.ifM(
-                    // If the scheduler is idle we simply return
-                    Concurrent[F].unit,
-                    // Scheduler is not idle so wait for the scheduler to clear, but in return the scheduled messages might have created more messages which scheduler other messages
-                    // an so on and so forth..
-                    waitForIdleDeferredOnIdleF(system.scheduler.isIdle)
-                      .flatMap(_.get) >> waitForIdle
-                  )
+                  _ <- checkIfMailboxIdle()
+                  _ <- if (checkSchedulerIdle) checkIfSchedulerIdle(systems.head) else Concurrent[F].unit
                   _ <- systemIdle.complete(()).void
                 } yield ()
               // Run this in the background...
@@ -99,5 +103,6 @@ trait ActorRefDebugSyntax {
             }
           }
       } yield deferred
+    }
   }
 }
