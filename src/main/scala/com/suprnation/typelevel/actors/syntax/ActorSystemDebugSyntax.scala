@@ -31,12 +31,12 @@ trait ActorSystemDebugSyntax {
   final implicit class ActorSystemDebugOps[F[+_]: Concurrent: Parallel: Temporal: Console](
       actorSystem: ActorSystem[F]
   ) {
-    def waitForIdle(maxTimeout: Duration = 30 second): F[List[NoSendActorRef[F]]] =
+    def waitForIdle(checkSchedulerIdle: Boolean = true, maxTimeout: Duration = 30 second): F[List[NoSendActorRef[F]]] =
       Concurrent[F]
         .race(
           for {
             children <- actorSystem.allChildren
-            _ <- children.waitForIdle
+            _ <- children.waitForIdle(checkSchedulerIdle)
             // Just a little delay so we let the system stabilise a bit before we check again
             _ <- Temporal[F].sleep(100 milliseconds)
             // After waiting for all the children, have new actors been created?
@@ -48,7 +48,7 @@ trait ActorSystemDebugSyntax {
               .pure[F]
               .ifM(
                 Temporal[F].unit,
-                waitForIdle(maxTimeout).void
+                waitForIdle(checkSchedulerIdle, maxTimeout).void
               )
             _ <- deadLetters.waitForIdle
             _ <- actorSystem.isTerminated.ifM(

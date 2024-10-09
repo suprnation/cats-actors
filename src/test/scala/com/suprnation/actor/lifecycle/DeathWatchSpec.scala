@@ -42,9 +42,8 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
       watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
-      waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       watcherWatchContext <- getWatchContext(watcher)
       watcheeWatchContext <- getWatchContext(watchee)
@@ -75,7 +74,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       _ <- watch(parent, child1)
       _ <- watch(parent, child2)
 
-      _ <- List(grandParent, parent, child1, child2).waitForIdle
+      _ <- actorSystem.waitForIdle()
 
       grandParentWatchContext <- getWatchContext(grandParent)
       parentWatchContext <- getWatchContext(parent)
@@ -120,7 +119,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
 
       _ <- watch(parent, grandParent)
 
-      _ <- List(grandParent, parent).waitForIdle
+      _ <- actorSystem.waitForIdle()
 
       grandParentWatchContext <- getWatchContext(grandParent)
       parentWatchContext <- getWatchContext(parent)
@@ -144,7 +143,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
 
       _ <- watch(sol, centauri)
 
-      _ <- List(sol, centauri).waitForIdle
+      _ <- actorSystem.waitForIdle()
 
       solWatchContext <- getWatchContext(sol)
       centauriWatchContext <- getWatchContext(centauri)
@@ -178,7 +177,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       _ <- watch(centauri, proximaC)
       _ <- watch(proximaC, earth) // They're watching
 
-      _ <- List(sol, centauri, earth, proximaB, proximaC).waitForIdle
+      _ <- actorSystem.waitForIdle()
 
       solWatchContext <- getWatchContext(sol)
       earthWatchContext <- getWatchContext(earth)
@@ -238,7 +237,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
 
         _ <- watch(watcher, watchee, "a")
         _ <- watch(watcher, watchee, "b")
-        _ <- List(watcher, watchee).waitForIdle
+        _ <- actorSystem.waitForIdle()
       } yield ()).unsafeToFuture()
     }.map(e =>
       e.getMessage should endWith(
@@ -253,7 +252,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
 
       _ <- watch(watcher, watcher)
-      _ <- List(watcher).waitForIdle
+      _ <- actorSystem.waitForIdle()
       watcherWatchContext <- getWatchContext(watcher)
     } yield watcherWatchContext).unsafeToFuture().map { case watcherWatchContext =>
       watcherWatchContext.watching shouldBe empty
@@ -290,11 +289,10 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
       watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
-      waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
       _ <- unwatch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       watcherWatchContext <- getWatchContext(watcher)
       watcheeWatchContext <- getWatchContext(watchee)
@@ -321,14 +319,13 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       _ <- watch(parent, child1)
       _ <- watch(parent, child2)
 
-      waitAll = List(grandParent, parent, child1, child2).waitForIdle
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       _ <- unwatch(grandParent, parent)
       _ <- unwatch(grandParent, child1)
       _ <- unwatch(parent, child1)
       _ <- unwatch(parent, child2)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       grandParentWatchContext <- getWatchContext(grandParent)
       parentWatchContext <- getWatchContext(parent)
@@ -370,12 +367,11 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       _ <- watch(parent, child1)
       _ <- watch(parent, child2)
 
-      waitAll = List(grandParent, parent, child1, child2).waitForIdle
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       _ <- unwatch(grandParent, parent)
       _ <- unwatch(parent, child2)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       grandParentWatchContext <- getWatchContext(grandParent)
       parentWatchContext <- getWatchContext(parent)
@@ -414,12 +410,10 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       centauri <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "alphaCentauri")
 
       _ <- watch(sol, centauri)
-
-      waitAll = List(sol, centauri).waitForIdle
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       _ <- unwatch(sol, centauri)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       solWatchContext <- getWatchContext(sol)
       centauriWatchContext <- getWatchContext(centauri)
@@ -451,8 +445,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       _ <- watch(centauri, proximaC)
       _ <- watch(proximaC, earth)
 
-      waitAll = List(sol, centauri, earth, proximaB, proximaC).waitForIdle
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       _ <- unwatch(sol, earth)
       _ <- unwatch(earth, centauri)
@@ -461,7 +454,7 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       _ <- unwatch(centauri, proximaB)
       _ <- unwatch(centauri, proximaC)
       _ <- unwatch(proximaC, earth)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       solWatchContext <- getWatchContext(sol)
       earthWatchContext <- getWatchContext(earth)
@@ -506,12 +499,11 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
       watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
-      waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
       _ <- unwatch(watcher, watchee)
       _ <- unwatch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       watcherWatchContext <- getWatchContext(watcher)
       watcheeWatchContext <- getWatchContext(watchee)
@@ -531,11 +523,10 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       watcher <- actorSystem.actorOf(Actor.empty[IO, DeathWatchRequest], "watcher")
       watchee <- createChild(watcher)(Actor.empty[IO, DeathWatchRequest], "watchee")
 
-      waitAll = List(watcher, watchee).waitForIdle
       _ <- watch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
       _ <- unwatch(watcher, watcher)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       watcherWatchContext <- getWatchContext(watcher)
       watcheeWatchContext <- getWatchContext(watchee)
@@ -556,14 +547,13 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       actorSystem <- ActorSystem[IO]("Death Watch 15", (_: Any) => IO.unit).allocated.map(_._1)
       watcher <- actorSystem.actorOf(Actor.ignoring[IO, DeathWatchRequest], "watcher")
       watchee <- actorSystem.actorOf(Actor.ignoring[IO, DeathWatchRequest], "watchee")
-      userGuardian <- actorSystem.guardian.get
-      waitAll = List(watcher, watchee, userGuardian).waitForIdle
+
       _ <- watch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
       _ <- stop(watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
       _ <- unwatch(watcher, watchee)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       watcherWatchContext <- getWatchContext(watcher)
       watcheeWatchContext <- getWatchContext(watchee)
@@ -584,12 +574,10 @@ class DeathWatchSpec extends AsyncFlatSpec with Matchers {
       parent <- actorSystem.actorOf(Actor.ignoring[IO, DeathWatchRequest], "parent")
       watcher <- createChild(parent)(Actor.ignoring[IO, DeathWatchRequest], "watcher")
       watchee <- createChild(parent)(Actor.ignoring[IO, DeathWatchRequest], "watchee")
-      userGuardian <- actorSystem.guardian.get
 
-      waitAll = List(watcher, watchee, userGuardian).waitForIdle
       _ <- watch(watcher, watchee)
       _ <- stop(watcher)
-      _ <- waitAll
+      _ <- actorSystem.waitForIdle()
 
       watcherWatchContext <- getWatchContext(watcher)
       watcheeWatchContext <- getWatchContext(watchee)
