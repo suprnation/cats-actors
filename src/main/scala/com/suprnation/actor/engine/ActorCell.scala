@@ -146,13 +146,13 @@ object ActorCell {
       private def handlePing: F[Any] =
         receiveTimeout.checkTimeout(msg => sendMessage(Envelope(msg), None))
 
-      @inline final def invoke(messageHandle: Envelope[F, Any]): F[(Any, Boolean)] =
+      @inline final private def invoke(messageHandle: Envelope[F, Any]): F[(Any, Boolean)] =
         for {
           _ <- receiveTimeout.markLastMessageTimestamp
           result <- (messageHandle.message match {
             case _: AutoReceivedMessage => autoReceiveMessage(messageHandle).map(_ -> true)
             case _                      => receiveMessage(messageHandle).map(_ -> true)
-          }).recoverWith { case NonFatal(e) =>
+          }).onError { case NonFatal(e) =>
             handleInvokeFailure(Nil, e).map(_ -> false)
           }
         } yield result
@@ -219,14 +219,22 @@ object ActorCell {
                   creationContext.senderOp = None
                 }
                 result
-              }.uncancelable >>= (result =>
-              deferred match {
-                case None =>
-                  isIdleTrue
-                case Some(d) =>
-                  d.complete(result).map(_ => _isIdle = true)
-              }
-            )
+              }.uncancelable
+                .recoverWith{ 
+                  (error: Throwable) => {
+                  deferred match {
+                    case None =>
+                      isIdleTrue
+                    case Some(d) =>
+                      d.complete(Left(error)).map(_ => _isIdle = true)
+                  }}} >>= (result =>
+                  deferred match {
+                    case None =>
+                      isIdleTrue
+                    case Some(d) =>
+                      d.complete(Right(result)).map(_ => _isIdle = true)
+                  }
+                )
           }
 
       def publish(e: Class[?] => LogEvent): F[Unit] =
