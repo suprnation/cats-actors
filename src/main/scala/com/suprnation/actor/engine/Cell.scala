@@ -69,7 +69,10 @@ trait Cell[F[+_], Request, Response] {
     *
     * Note internally messages are not typed, the typing comes on the layer on top of the actors.
     */
-  def sendMessage(msg: Envelope[F, Any], deferred: Option[Deferred[F, Either[Throwable, Any]]] = None): F[Unit]
+  def sendMessage(
+      msg: Envelope[F, Any],
+      deferred: Option[Deferred[F, Either[Throwable, Any]]] = None
+  ): F[Unit]
 
   /** Enqueue a message to be sent to the actor system queue; may or may not actually schedule the actor to run, depending on which type of cell it is.
     */

@@ -29,13 +29,13 @@ import org.scalatest.exceptions.TestFailedException
 
 object AskSpec {
   sealed trait Input
-  case object Hi extends Input
-  case object Error extends Input
+  case class Hi(response: Int) extends Input
+  case class Error(error: String) extends Exception(error) with Input
 
-  def askReceiver(response: Int, error: String): ReplyingActor[IO, Input, Int] = new ReplyingActor[IO, Input, Int] {
+  lazy val askReceiver: ReplyingActor[IO, Input, Int] = new ReplyingActor[IO, Input, Int] {
     override def receive: ReplyingReceive[IO, Any, Int] = {
-      case Hi => response.pure[IO]
-      case Error => IO.raiseError(new Exception(error))
+      case Hi(response)       => response.pure[IO]
+      case err @ Error(error) => IO.raiseError(err)
     }
   }
 }
@@ -45,32 +45,31 @@ class AskSpec extends AsyncFlatSpec with Matchers with Assertions {
   import AskSpec._
 
   it should "return the correct response" in {
-    ActorSystem[IO]("AskSpec").use { system =>
-      for {
-        actor <- system.replyingActorOf(askReceiver(4567, "oops"))
+    ActorSystem[IO]("AskSpec")
+      .use { system =>
+        for {
+          actor <- system.replyingActorOf(askReceiver)
 
-        response <- actor ? Hi
-      } yield (response shouldBe 4567)
-    }.unsafeToFuture()
+          response <- actor ? Hi(4567)
+        } yield response shouldBe 4567
+      }
+      .unsafeToFuture()
 
   }
 
   it should "catch errors" in {
-    ActorSystem[IO]("AskSpec").use { system =>
-      for {
-        actor <- system.replyingActorOf(askReceiver(4567, "oops"))
+    recoverToSucceededIf[Error] {
+      ActorSystem[IO]("AskSpec")
+        .use { system =>
+          for {
+            actor <- system.replyingActorOf(askReceiver)
 
-        response <- actor ? Error
-      } yield fail(s"Expected exception but got response instead: $response")
-    }.recover {
-      case oops: Throwable if oops.getMessage.equals("oops") => succeed
-      case ex: Throwable if !ex.isInstanceOf[TestFailedException]=> 
-        ex.printStackTrace()
-        fail("Unexpected exception", ex)
-    }.unsafeToFuture()
+            response <- actor ? Error("oops")
+          } yield ()
+        }
+        .unsafeToFuture()
+    }
 
   }
 
-
- 
 }

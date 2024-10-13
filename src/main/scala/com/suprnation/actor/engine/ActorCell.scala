@@ -213,28 +213,30 @@ object ActorCell {
               _currentMessage = envelope.some
               creationContext.senderOp = envelope.sender
             } >>
-              invoke(envelope).map { case (result, success) =>
-                if (success) {
-                  _currentMessage = None
-                  creationContext.senderOp = None
+              invoke(envelope)
+                .map { case (result, success) =>
+                  if (success) {
+                    _currentMessage = None
+                    creationContext.senderOp = None
+                  }
+                  result
                 }
-                result
-              }.uncancelable
-                .recoverWith{ 
-                  (error: Throwable) => {
+                .uncancelable
+                .recoverWith { (error: Throwable) =>
                   deferred match {
                     case None =>
                       isIdleTrue
                     case Some(d) =>
                       d.complete(Left(error)).map(_ => _isIdle = true)
-                  }}} >>= (result =>
-                  deferred match {
-                    case None =>
-                      isIdleTrue
-                    case Some(d) =>
-                      d.complete(Right(result)).map(_ => _isIdle = true)
                   }
-                )
+                } >>= (result =>
+              deferred match {
+                case None =>
+                  isIdleTrue
+                case Some(d) =>
+                  d.complete(Right(result)).map(_ => _isIdle = true)
+              }
+            )
           }
 
       def publish(e: Class[?] => LogEvent): F[Unit] =
