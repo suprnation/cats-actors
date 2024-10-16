@@ -98,8 +98,8 @@ private[actor] object TimerSchedulerImpl {
 }
 
 private[actor] class TimerSchedulerImpl[F[+_] : Async, Request, Key](
-  private val timerGen: Ref[F, Int],
-  private val timerRef: Ref[F, Map[Key, StoredTimer[F]]],
+  private val timerGenRef: Ref[F, Int],
+  private val timersRef: Ref[F, Map[Key, StoredTimer[F]]],
   private val context: ActorContext[F, Request, Any]
 ) extends TimerScheduler[F, Request, Key] {
 
@@ -118,41 +118,42 @@ private[actor] class TimerSchedulerImpl[F[+_] : Async, Request, Key](
     mode: TimerMode
   ): F[Unit] =
     for {
-      gen <- timerGen.getAndUpdate(_ + 1)
+      gen <- timerGenRef.getAndUpdate(_ + 1)
       timer = Timer(key, msg, mode, gen, self)(context.system.scheduler)
       fiber <- timer.schedule(self, timeout)
-      _ <- timerRef.flatModify(timers =>
-        (
-          timers + (key -> StoredTimer(gen, fiber)),
-          timers.get(key).map(_.cancel).getOrElse(Async[F].unit)
-        )
-      )
+      _ <-
+        timersRef.flatModify({ timers =>
+          (
+            timers + (key -> StoredTimer(gen, fiber)),
+            timers.get(key).map(_.cancel).getOrElse(Async[F].unit)
+          )
+        })
     } yield ()
 
-  def isTimerActive(key: Key): F[Boolean] = timerRef.get.map(_.contains(key))
+  def isTimerActive(key: Key): F[Boolean] = timersRef.get.map(_.contains(key))
 
   def cancel(key: Key): F[Unit] =
-    timerRef.flatModify(timers =>
+    timersRef.flatModify({ timers =>
       (timers - key, timers.get(key).map(_.cancel).getOrElse(Async[F].unit))
-    )
+    })
 
   def cancelAll: F[Unit] =
-    timerRef.flatModify(timers =>
+    timersRef.flatModify({ timers =>
       (Map.empty, timers.view.values.toList.traverse_(_.cancel))
-    )
+    })
 
   def interceptTimerMsg(t: Timer[F, Request, Key]): F[Any] = {
     if (!(t.owner eq self)) Async[F].unit
     else
-      timerRef.get
-        .map(timers => (timers contains t.key) && (timers(t.key).generation == t.generation))
+      timersRef.get
+        .map(_.get(t.key).exists(_.generation == t.generation))
         .ifM(
-          timerGen.update(_ + 1) >>
-            (if (!t.mode.repeat)
-              timerRef.update(_ - t.key)
-            else
-              Async[F].unit) >> (self ! t.msg),
+          removeSingleTimer(t) >> (self ! t.msg),
           Async[F].unit
         )
   }
+
+  private def removeSingleTimer(t: Timer[F, Request, Key]): F[Unit] =
+    if (!t.mode.repeat) timersRef.update(_ - t.key)
+    else Async[F].unit
 }
