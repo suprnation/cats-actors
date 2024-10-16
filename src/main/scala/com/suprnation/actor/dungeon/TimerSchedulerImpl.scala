@@ -1,15 +1,64 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.actor.dungeon
 
 import cats.effect.{Async, Fiber, Ref}
 import cats.implicits._
 import com.suprnation.actor.ActorRef.ActorRef
 import com.suprnation.actor.dungeon.TimerSchedulerImpl._
-import com.suprnation.actor.{ActorContext, Scheduler, SystemCommand, TimerScheduler}
+import com.suprnation.actor.{ActorContext, Scheduler, SystemCommand}
 
 import scala.concurrent.duration.FiniteDuration
 
+sealed trait TimerScheduler[F[_], Request, Key] {
+
+  /**
+   * Start a timer that will send `msg` once to the `self` actor after
+   * the given `timeout`.
+   */
+  def startSingleTimer(key: Key, msg: Request, delay: FiniteDuration): F[Unit]
+
+  /**
+   * Scala API: Schedules a message to be sent repeatedly to the `self` actor with a
+   * fixed `delay` between messages.
+   */
+  def startTimerWithFixedDelay(key: Key, msg: Request, delay: FiniteDuration): F[Unit]
+
+  /**
+   * Check if a timer with a given `key` is active.
+   */
+  def isTimerActive(key: Key): F[Boolean]
+
+  /**
+   * Cancel a timer with a given `key`.
+   * If canceling a timer that was already canceled, or key never was used to start a timer
+   * this operation will do nothing.
+   */
+  def cancel(key: Key): F[Unit]
+
+  /**
+   * Cancel all timers.
+   */
+  def cancelAll: F[Unit]
+
+}
+
 /** INTERNAL API */
-object TimerSchedulerImpl {
+private[actor] object TimerSchedulerImpl {
   sealed trait TimerMode {
     def repeat: Boolean
   }
@@ -36,8 +85,7 @@ object TimerSchedulerImpl {
     ): F[Fiber[F, Throwable, Unit]] =
       mode match {
         case SingleMode => scheduler.scheduleOnce_(timeout)(actor !* this)
-        case FixedDelayMode =>
-          scheduler.scheduleWithFixedDelay(timeout, timeout)(actor !* this)
+        case FixedDelayMode => scheduler.scheduleWithFixedDelay(timeout, timeout)(actor !* this)
       }
   }
 
@@ -49,7 +97,7 @@ object TimerSchedulerImpl {
   }
 }
 
-class TimerSchedulerImpl[F[+_] : Async, Request, Key](
+private[actor] class TimerSchedulerImpl[F[+_] : Async, Request, Key](
   private val timerGen: Ref[F, Int],
   private val timerRef: Ref[F, Map[Key, StoredTimer[F]]],
   private val context: ActorContext[F, Request, Any]
@@ -93,4 +141,18 @@ class TimerSchedulerImpl[F[+_] : Async, Request, Key](
       (Map.empty, timers.view.values.toList.traverse_(_.cancel))
     )
 
+  def interceptTimerMsg(t: Timer[F, Request, Key]): F[Any] = {
+    if (!(t.owner eq self)) Async[F].unit
+    else
+      timerRef.get
+        .map(timers => (timers contains t.key) && (timers(t.key).generation == t.generation))
+        .ifM(
+          timerGen.update(_ + 1) >>
+            (if (!t.mode.repeat)
+              timerRef.update(_ - t.key)
+            else
+              Async[F].unit) >> (self ! t.msg),
+          Async[F].unit
+        )
+  }
 }
