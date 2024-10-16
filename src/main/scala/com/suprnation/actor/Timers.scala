@@ -22,7 +22,7 @@ import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor.dungeon.{TimerScheduler, TimerSchedulerImpl}
 import com.suprnation.actor.dungeon.TimerSchedulerImpl.{StoredTimer, Timer}
 
-trait Timers[F[_], Request, Key] {
+trait Timers[F[+_], Request, Key] {
   self: Actor[F, Request] =>
 
   implicit def asyncEvidence: Async[F]
