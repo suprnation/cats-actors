@@ -503,8 +503,8 @@ case class FSMBuilder[F[+_]: Async, S, D, Request, Response: Monoid](
         override protected val generationRef: Ref[F, Int] = generation
         override protected val timeoutFiberRef: Ref[F, Option[Fiber[F, Throwable, Unit]]] =
           timeoutFiber
-        override protected val timerRef: Ref[F, Map[String, StoredTimer[F]]] = timerRefInit
-        override protected val timerGen: Ref[F, Int] = timerGenInit
+        override protected val timersRef: Ref[F, Map[String, StoredTimer[F]]] = timerRefInit
+        override protected val timerGenRef: Ref[F, Int] = timerGenInit
         override val asyncEvidence: Async[F] = implicitly[Async[F]]
       }.asInstanceOf[ReplyingActor[F, Request, Response]]
     }

@@ -19,6 +19,7 @@ package com.suprnation.actor.dungeon
 import cats.effect.{Async, Fiber, Ref}
 import cats.implicits._
 import com.suprnation.actor.ActorRef.ActorRef
+import com.suprnation.actor.dungeon.TimerSchedulerImpl.TimerMode.{FixedDelay, Single}
 import com.suprnation.actor.dungeon.TimerSchedulerImpl._
 import com.suprnation.actor.{ActorContext, Scheduler, SystemCommand}
 
@@ -63,12 +64,14 @@ private[actor] object TimerSchedulerImpl {
     def repeat: Boolean
   }
 
-  case object FixedDelayMode extends TimerMode {
-    override def repeat: Boolean = true
-  }
+  object TimerMode {
+    case object FixedDelay extends TimerMode {
+      override def repeat: Boolean = true
+    }
 
-  case object SingleMode extends TimerMode {
-    override def repeat: Boolean = false
+    case object Single extends TimerMode {
+      override def repeat: Boolean = false
+    }
   }
 
   final case class Timer[F[+_] : Async, Request, Key](
@@ -84,8 +87,8 @@ private[actor] object TimerSchedulerImpl {
       timeout: FiniteDuration
     ): F[Fiber[F, Throwable, Unit]] =
       mode match {
-        case SingleMode => scheduler.scheduleOnce_(timeout)(actor !* this)
-        case FixedDelayMode => scheduler.scheduleWithFixedDelay(timeout, timeout)(actor !* this)
+        case Single => scheduler.scheduleOnce_(timeout)(actor !* this)
+        case FixedDelay => scheduler.scheduleWithFixedDelay(timeout, timeout)(actor !* this)
       }
   }
 
@@ -106,10 +109,10 @@ private[actor] class TimerSchedulerImpl[F[+_] : Async, Request, Key](
   private lazy val self: ActorRef[F, Request] = context.self
 
   override def startSingleTimer(key: Key, msg: Request, delay: FiniteDuration): F[Unit] =
-    startTimer(key, msg, delay, SingleMode)
+    startTimer(key, msg, delay, Single)
 
   def startTimerWithFixedDelay(key: Key, msg: Request, delay: FiniteDuration): F[Unit] =
-    startTimer(key, msg, delay, FixedDelayMode)
+    startTimer(key, msg, delay, FixedDelay)
 
   private def startTimer(
     key: Key,
