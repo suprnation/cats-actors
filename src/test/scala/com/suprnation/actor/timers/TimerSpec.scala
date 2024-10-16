@@ -85,12 +85,13 @@ class TimerSpec extends AsyncFlatSpec with Matchers {
       system <-
         ActorSystem[IO](
           "timers",
-          {
-            case Debug(_, _, DeadLetter(_, _, _)) =>
-              IO.println("Dead letter message received. Failing test") >>
-                count.set(-1)
-            case _ => IO.unit
-          }
+          (msg: Any) =>
+            msg match {
+              case Debug(_, _, DeadLetter(_, _, _)) =>
+                IO.println("Dead letter message received. Failing test") >>
+                  count.set(-1)
+              case _ => IO.unit
+            }
         ).allocated.map(_._1)
       parentActor <- system.actorOf(ParentActor(count))
       _ <- testAction(parentActor)
