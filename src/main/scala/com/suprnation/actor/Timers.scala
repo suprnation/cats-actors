@@ -27,10 +27,10 @@ trait Timers[F[+_], Request, Key] {
 
   implicit def asyncEvidence: Async[F]
 
-  protected val timerRef: Ref[F, Map[Key, StoredTimer[F]]]
-  protected val timerGen: Ref[F, Int]
+  protected val timerGenRef: Ref[F, Int]
+  protected val timersRef: Ref[F, Map[Key, StoredTimer[F]]]
 
-  private lazy val _timers = new TimerSchedulerImpl[F, Request, Key](timerGen, timerRef, context)
+  private lazy val _timers = new TimerSchedulerImpl[F, Request, Key](timerGenRef, timersRef, context)
   final def timers: TimerScheduler[F, Request, Key] = _timers
 
   override def aroundPreRestart(reason: Option[Throwable], message: Option[Any]): F[Unit] =
