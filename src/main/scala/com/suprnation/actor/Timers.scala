@@ -1,13 +1,26 @@
+/*
+ * Copyright 2024 SuprNation
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.suprnation.actor
 
 import cats.effect.{Async, Ref}
 import cats.implicits._
 import com.suprnation.actor.Actor.{Actor, Receive}
-import com.suprnation.actor.dungeon.TimerSchedulerImpl
+import com.suprnation.actor.dungeon.{TimerScheduler, TimerSchedulerImpl}
 import com.suprnation.actor.dungeon.TimerSchedulerImpl.{StoredTimer, Timer}
-
-import scala.concurrent.duration.FiniteDuration
-import scala.reflect.ClassTag
 
 trait Timers[F[+_], Request, Key] {
   _: Actor[F, Request] =>
@@ -20,64 +33,16 @@ trait Timers[F[+_], Request, Key] {
   private lazy val _timers = new TimerSchedulerImpl[F, Request, Key](timerGen, timerRef, context)
   final def timers: TimerScheduler[F, Request, Key] = _timers
 
-  //timers.cancelAll()
-//  abstract override def aroundPreRestart(reason: Option[Throwable], message: Option[Any]): F[Unit] = {
-//    super.aroundPreRestart(reason, message)
-//  }
+  override def aroundPreRestart(reason: Option[Throwable], message: Option[Any]): F[Unit] =
+    timers.cancelAll >> preRestart(reason, message)
 
-  //timers.cancelAll()
-//  override def aroundPostStop(): F[Unit] = super.aroundPostStop()
+  override def aroundPostStop(): F[Unit] =
+    timers.cancelAll >> postStop
 
   // match message, if is timer, timers.interceptTimerMsg
-  override def aroundReceive(receive: Receive[F, Request], msg: Any): F[Any] = interceptTimerMsg(msg)
-
-  private def interceptTimerMsg(msg: Any)(implicit ct: ClassTag[Timer[F, Request, Key]]): F[Any] = {
+  override def aroundReceive(receive: Receive[F, Request], msg: Any): F[Any] =
     msg match {
-      case t: Timer[F, Request, Key] =>
-        if (!(t.owner eq self)) Async[F].unit
-        else
-          timerRef.get
-            .map(timers => (timers contains t.key) && (timers(t.key).generation == t.generation))
-            .ifM(
-              timerGen.update(_ + 1) >>
-                (if (!t.mode.repeat)
-                  timerRef.update(_ - t.key)
-                else
-                  Async[F].unit) >> (self ! t.msg),
-              Async[F].unit
-            )
-
-      case _ =>
-        receive.applyOrElse(msg.asInstanceOf[Request], unhandled)
+      case t: Timer[F, Request, Key] => _timers.interceptTimerMsg(t)
+      case _ => receive.applyOrElse(msg.asInstanceOf[Request], unhandled)
     }
-  }
-}
-
-abstract class TimerScheduler[F[_], Request, Key] {
-
-  /**
-   * Start a timer that will send `msg` once to the `self` actor after
-   * the given `timeout`.
-   */
-  def startSingleTimer(key: Key, msg: Request, delay: FiniteDuration): F[Unit]
-
-  def startTimerWithFixedDelay(key: Key, msg: Request, delay: FiniteDuration): F[Unit]
-
-  /**
-   * Check if a timer with a given `key` is active.
-   */
-  def isTimerActive(key: Key): F[Boolean]
-
-  /**
-   * Cancel a timer with a given `key`.
-   * If canceling a timer that was already canceled, or key never was used to start a timer
-   * this operation will do nothing.
-   */
-  def cancel(key: Key): F[Unit]
-
-  /**
-   * Cancel all timers.
-   */
-  def cancelAll: F[Unit]
-
 }

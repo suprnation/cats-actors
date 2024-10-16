@@ -237,19 +237,6 @@ private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
                 handleEvent(stateManager)(updatedEvent.asInstanceOf[FSM.Event[D, Any]])
               )
 
-/*        case o =>
-          val x: PartialFunction[Event[D, Request], F[State[S, D, Request, Response]]] = stateFunc(stateManager)
-          val y: Option[F[State[S, D, Request, Response]]] =
-            x.lift({
-              val data: D = event.stateData
-              val requestOpt = Try(event.event.asInstanceOf[Request]).toOption
-              val request: Request = requestOpt.get
-              //              event.asInstanceOf[Event[D, Request]]
-              Event[D, Request](request, data)
-            })
-
-
-          y.getOrElse(handleEvent(stateManager)(event))*/
         case _ =>
           stateFunc(stateManager)
             .lift(event.asInstanceOf[Event[D, Request]])
