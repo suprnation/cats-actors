@@ -142,16 +142,15 @@ private[actor] class TimerSchedulerImpl[F[+_] : Async, Request, Key](
       (Map.empty, timers.view.values.toList.traverse_(_.cancel))
     })
 
-  def interceptTimerMsg(t: Timer[F, Request, Key]): F[Any] = {
-    if (!(t.owner eq self)) Async[F].unit
+  def interceptTimerMsg(t: Timer[F, Request, Key]): F[Boolean] =
+    if (!(t.owner eq self)) Async[F].pure(false)
     else
       timersRef.get
         .map(_.get(t.key).exists(_.generation == t.generation))
         .ifM(
-          removeSingleTimer(t) >> (self ! t.msg),
-          Async[F].unit
+          removeSingleTimer(t).as(true),
+          Async[F].pure(false)
         )
-  }
 
   private def removeSingleTimer(t: Timer[F, Request, Key]): F[Unit] =
     if (!t.mode.repeat) timersRef.update(_ - t.key)

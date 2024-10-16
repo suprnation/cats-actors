@@ -27,6 +27,7 @@ trait Timers[F[+_], Request, Key] {
 
   // to be removed with scala 3
   implicit def asyncEvidence: Async[F]
+
   protected val timerRef: Ref[F, Map[Key, StoredTimer[F]]]
   protected val timerGen: Ref[F, Int]
 
@@ -39,10 +40,9 @@ trait Timers[F[+_], Request, Key] {
   override def aroundPostStop(): F[Unit] =
     timers.cancelAll >> postStop
 
-  // match message, if is timer, timers.interceptTimerMsg
   override def aroundReceive(receive: Receive[F, Request], msg: Any): F[Any] =
     msg match {
-      case t: Timer[F, Request, Key] => _timers.interceptTimerMsg(t)
+      case t: Timer[F, Request, Key] => _timers.interceptTimerMsg(t).ifM(receive(t.msg), unhandled(t.msg))
       case _ => receive.applyOrElse(msg.asInstanceOf[Request], unhandled)
     }
 }
