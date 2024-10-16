@@ -22,10 +22,9 @@ import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor.dungeon.{TimerScheduler, TimerSchedulerImpl}
 import com.suprnation.actor.dungeon.TimerSchedulerImpl.{StoredTimer, Timer}
 
-trait Timers[F[+_], Request, Key] {
-  _: Actor[F, Request] =>
+trait Timers[F[_], Request, Key] {
+  self: Actor[F, Request] =>
 
-  // to be removed with scala 3
   implicit def asyncEvidence: Async[F]
 
   protected val timerRef: Ref[F, Map[Key, StoredTimer[F]]]
