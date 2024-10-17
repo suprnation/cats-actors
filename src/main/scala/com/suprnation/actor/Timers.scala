@@ -22,8 +22,7 @@ import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor.dungeon.{TimerScheduler, TimerSchedulerImpl}
 import com.suprnation.actor.dungeon.TimerSchedulerImpl.{StoredTimer, Timer}
 
-trait Timers[F[+_], Request, Key] {
-  self: Actor[F, Request] =>
+trait Timers[F[+_], Request, Key] extends Actor[F, Request] {
 
   implicit def asyncEvidence: Async[F]
 
@@ -34,14 +33,19 @@ trait Timers[F[+_], Request, Key] {
   final def timers: TimerScheduler[F, Request, Key] = _timers
 
   override def aroundPreRestart(reason: Option[Throwable], message: Option[Any]): F[Unit] =
-    timers.cancelAll >> preRestart(reason, message)
+    timers.cancelAll >> super.aroundPreRestart(reason, message)
 
   override def aroundPostStop(): F[Unit] =
-    timers.cancelAll >> postStop
+    timers.cancelAll >> super.aroundPostStop()
 
   override def aroundReceive(receive: Receive[F, Request], msg: Any): F[Any] =
     msg match {
-      case t: Timer[F, Request, Key] => _timers.interceptTimerMsg(t).ifM(receive(t.msg), unhandled(t.msg))
-      case _ => receive.applyOrElse(msg.asInstanceOf[Request], unhandled)
+      case t: Timer[F, Request, Key] =>
+        _timers.interceptTimerMsg(t).ifM(
+          super.aroundReceive(receive, t.msg),
+          unhandled(t.msg)
+        )
+
+      case _ => super.aroundReceive(receive, msg)
     }
 }
