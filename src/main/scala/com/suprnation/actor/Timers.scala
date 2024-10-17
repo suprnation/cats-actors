@@ -17,10 +17,12 @@
 package com.suprnation.actor
 
 import cats.effect.{Async, Ref}
-import cats.implicits._
+import cats.implicits.{catsSyntaxFlatMapOps, catsSyntaxIfM, toFlatMapOps}
 import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor.dungeon.{TimerScheduler, TimerSchedulerImpl}
 import com.suprnation.actor.dungeon.TimerSchedulerImpl.{StoredTimer, Timer}
+
+import scala.util.Try
 
 trait Timers[F[+_], Request, Key] extends Actor[F, Request] {
 
@@ -40,11 +42,15 @@ trait Timers[F[+_], Request, Key] extends Actor[F, Request] {
 
   override def aroundReceive(receive: Receive[F, Request], msg: Any): F[Any] =
     msg match {
-      case t: Timer[F, Request, Key] =>
-        _timers.interceptTimerMsg(t).ifM(
-          super.aroundReceive(receive, t.msg),
-          unhandled(t.msg)
-        )
+      case timer: Timer[_, _, _] =>
+        Async[F]
+          .fromTry(Try(timer.asInstanceOf[Timer[F, Request, Key]]))
+          .flatMap(t =>
+            _timers.interceptTimerMsg(t).ifM(
+              super.aroundReceive(receive, t.msg),
+              unhandled(t.msg)
+            )
+          )
 
       case _ => super.aroundReceive(receive, msg)
     }
