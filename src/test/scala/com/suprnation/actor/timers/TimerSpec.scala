@@ -118,12 +118,11 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
       ActorSystem[IO]("timers", deadLetterListener(countRef))
         .use({ system =>
           for {
-            cache <- Ref.of[IO, Map[String, TrackingActor.ActorRefs[IO]]](Map.empty)
             trackerActor <-
               system.actorOf(
                 ReplyingActor
                   .ignoring[IO, Any]("Timers test tracker actor")
-                  .track("Timers test tracker")(cache)
+                  .trackWithCache("Timers test tracker actor")
               )
             timerGenRef <- Ref.empty[IO, Int]
             timersRef <- Ref.of[IO, Map[Key, StoredTimer[IO]]](Map.empty)
