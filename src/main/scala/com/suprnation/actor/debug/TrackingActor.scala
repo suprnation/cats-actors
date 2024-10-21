@@ -39,10 +39,40 @@ object TrackingActor {
   )
 
   def create[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
+      proxy: ReplyingActor[F, Request, Response]
+  ): F[TrackingActor[F, Request, Response]] =
+    createInner[F, Request, Response](proxy)(_ => Concurrent[F].unit)
+
+  def create[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
       cache: Ref[F, Map[String, ActorRefs[F]]],
       stableName: String,
       proxy: ReplyingActor[F, Request, Response]
-  ): F[TrackingActor[F, Request, Response]] = {
+  ): F[TrackingActor[F, Request, Response]] =
+    cache.get.flatMap { currentCache =>
+      currentCache.get(stableName) match {
+        case Some(refs) =>
+          new TrackingActor[F, Request, Response](
+            refs._1,
+            refs._2,
+            refs._3,
+            refs._4,
+            refs._5,
+            refs._6,
+            refs._7,
+            refs._8,
+            refs._9,
+            refs._10,
+            proxy
+          ).pure[F]
+
+        case None =>
+          createInner(proxy)(refs => cache.update(_ + (stableName -> refs)))
+      }
+    }
+
+  private def createInner[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
+      proxy: ReplyingActor[F, Request, Response]
+  )(preCreateFn: ActorRefs[F] => F[Unit]): F[TrackingActor[F, Request, Response]] = {
     def newRefs: (
         F[Ref[F, Int]],
         F[Ref[F, Int]],
@@ -69,59 +99,34 @@ object TrackingActor {
       Ref.of[F, Queue[(Throwable, Option[Any])]](Queue.empty[(Throwable, Option[Any])])
     )
 
-    cache.get.flatMap { currentCache =>
-      currentCache.get(stableName) match {
-        case Some(refs) =>
-          Concurrent[F].pure(
-            new TrackingActor[F, Request, Response](
-              refs._1,
-              refs._2,
-              refs._3,
-              refs._4,
-              refs._5,
-              refs._6,
-              refs._7,
-              refs._8,
-              refs._9,
-              refs._10,
-              proxy
-            )
+    newRefs.flatMapN {
+      case refs @ (
+            initCountRef,
+            preStartCountRef,
+            postStopCountRef,
+            preRestartCountRef,
+            postRestartCountRef,
+            preSuspendCountRef,
+            preResumeCountRef,
+            messageBufferRef,
+            restartMessageBufferRef,
+            errorMessageBufferRef
+          ) =>
+        preCreateFn(refs).as(
+          new TrackingActor[F, Request, Response](
+            initCountRef,
+            preStartCountRef,
+            postStopCountRef,
+            preRestartCountRef,
+            postRestartCountRef,
+            preSuspendCountRef,
+            preResumeCountRef,
+            messageBufferRef,
+            restartMessageBufferRef,
+            errorMessageBufferRef,
+            proxy
           )
-
-        case None =>
-          newRefs.mapN {
-            case (
-                  initCountRef,
-                  preStartCountRef,
-                  postStopCountRef,
-                  preRestartCountRef,
-                  postRestartCountRef,
-                  preSuspendCountRef,
-                  preResumeCountRef,
-                  messageBufferRef,
-                  restartMessageBufferRef,
-                  errorMessageBufferRef
-                ) =>
-              cache.update(
-                _ + (stableName -> (initCountRef, preStartCountRef, postStopCountRef, preRestartCountRef, postRestartCountRef, preSuspendCountRef, preResumeCountRef, messageBufferRef, restartMessageBufferRef, errorMessageBufferRef))
-              ) *>
-                Concurrent[F].pure(
-                  new TrackingActor[F, Request, Response](
-                    initCountRef,
-                    preStartCountRef,
-                    postStopCountRef,
-                    preRestartCountRef,
-                    postRestartCountRef,
-                    preSuspendCountRef,
-                    preResumeCountRef,
-                    messageBufferRef,
-                    restartMessageBufferRef,
-                    errorMessageBufferRef,
-                    proxy
-                  )
-                )
-          }.flatten
-      }
+        )
     }
   }
 }
