@@ -96,6 +96,26 @@ trait TestKit {
       Async[F].raiseError(new Exception("Expected actor to be terminated but was still alive"))
     )
 
+  def receiveWhile[F[+_]: Async: Console, T](actor: ActorRef[F, ?], timeout: FiniteDuration)(
+      pF: PartialFunction[Any, T]
+  ): F[Seq[T]] =
+    for {
+      _ <- awaitCond(
+        actor.messageBuffer.map { case (_, messages) =>
+          !messages.forall(pF.isDefinedAt)
+        },
+        timeout,
+        100.millis,
+        s"all received messages match the given partial function"
+      ).recoverWith { case _: TimeoutException =>
+        Console[F].println(s"Timeout was reached in receiveWhile")
+      }
+
+      result <- actor.messageBuffer.map { case (_, messages) =>
+        messages.takeWhile(pF.isDefinedAt).map(pF)
+      }
+    } yield result
+
   def within[F[_]: Async, T](min: FiniteDuration, max: FiniteDuration)(f: => F[T]): F[T] = for {
     start <- Async[F].monotonic
     result <- f.timeout(max).adaptError { case t: TimeoutException =>

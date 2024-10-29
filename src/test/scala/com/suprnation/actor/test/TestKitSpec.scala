@@ -18,86 +18,116 @@ package com.suprnation.actor.test
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import com.suprnation.actor.ActorRef.ActorRef
 import com.suprnation.actor.debug.TrackingActor
 import com.suprnation.actor.{Actor, ActorSystem}
 import com.suprnation.typelevel.actors.syntax.ActorSystemDebugOps
+import org.scalatest.Assertion
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import scala.concurrent.Future
 import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
 
 class TestKitSpec extends AsyncFlatSpec with Matchers with TestKit {
 
-  "expectTerminated" should "assert true when the actor is terminated" in {
+  type Fixture = (ActorSystem[IO], ActorRef[IO, Any])
+
+  protected def testActorSystem(test: Fixture => IO[Assertion]): Future[Assertion] =
     ActorSystem[IO]()
       .use { actorSystem =>
         for {
-          actorRef <- actorSystem.actorOf(Actor.empty[IO, Any])
+          actorRef <- actorSystem.actorOf(
+            TrackingActor.create[IO, Any, Any](
+              Actor.withReceive[IO, Any] { case _ =>
+                IO.unit
+              }
+            )
+          )
 
-          _ <- actorRef.stop
-          _ <- actorSystem.waitForIdle()
-
-          _ <- expectTerminated(actorRef)
-        } yield succeed
+          result <- test(actorSystem, actorRef)
+        } yield result
       }
       .unsafeToFuture()
+
+  "expectTerminated" should "assert true when the actor is terminated" in {
+    testActorSystem { case (actorSystem, actorRef) =>
+      for {
+        _ <- actorRef.stop
+        _ <- actorSystem.waitForIdle()
+
+        _ <- expectTerminated(actorRef)
+      } yield succeed
+    }
   }
 
   "expectTerminated" should "throw exception when the actor is alive" in {
-    ActorSystem[IO]()
-      .use { actorSystem =>
-        for {
-          actorRef <- actorSystem.actorOf(Actor.empty[IO, Any])
-          isTerminated <- expectTerminated(actorRef).as(true).handleError(_ => false)
-        } yield isTerminated should be(false)
-      }
-      .unsafeToFuture()
+    testActorSystem { case (_, actorRef) =>
+      expectTerminated(actorRef)
+        .as(true)
+        .handleError(_ => false)
+        .map(_ should be(false))
+    }
   }
 
   "expectMsgPF" should "succeed when actor received expected message defined in partial function" in {
-    ActorSystem[IO]()
-      .use { actorSystem =>
-        for {
-          actorRef <- actorSystem.actorOf(
-            TrackingActor.create[IO, Any, Any](
-              Actor.withReceive[IO, Any] { case _ =>
-                IO.unit
-              }
-            )
-          )
+    testActorSystem { case (actorSystem, actorRef) =>
+      for {
+        _ <- actorRef ! "Hello"
 
-          _ <- actorRef ! "Hello"
-
-          _ <- actorSystem.waitForIdle()
-          _ <- expectMsgPF(actorRef, 1 second) {
-            case s: String if s == "Hello" => ()
-          }
-        } yield succeed
-      }
-      .unsafeToFuture()
+        _ <- actorSystem.waitForIdle()
+        _ <- expectMsgPF(actorRef, 1 second) {
+          case s: String if s == "Hello" => ()
+        }
+      } yield succeed
+    }
   }
 
   "expectMsgPF" should "fail when actor did not receive expected message defined in partial function" in {
-    ActorSystem[IO]()
-      .use { actorSystem =>
-        for {
-          actorRef <- actorSystem.actorOf(
-            TrackingActor.create[IO, Any, Any](
-              Actor.withReceive[IO, Any] { case _ =>
-                IO.unit
-              }
-            )
-          )
+    testActorSystem { case (_, actorRef) =>
+      for {
+        _ <- actorRef ! "Bye"
 
-          _ <- actorRef ! "Bye"
-
-          receivedMessage <- expectMsgPF(actorRef, 1 second) {
-            case s: String if s == "Hello" => ()
-          }.as(true).handleError(_ => false)
-        } yield receivedMessage should be(false)
-      }
-      .unsafeToFuture()
+        receivedMessage <- expectMsgPF(actorRef, 1 second) {
+          case s: String if s == "Hello" => ()
+        }.as(true).handleError(_ => false)
+      } yield receivedMessage should be(false)
+    }
   }
 
+  "receiveWhile" should "stop when an unhandled message is received" in {
+    testActorSystem { case (_, actorRef) =>
+      for {
+        _ <- actorRef ! "Bye"
+        _ <- actorRef ! "Bye"
+        _ <- actorRef ! 2
+        _ <- actorRef ! "Bye"
+
+        receivedMessage <- receiveWhile(actorRef, 1 second) { case s: String =>
+          s
+        }
+      } yield {
+        receivedMessage should have size 2
+        receivedMessage should contain theSameElementsAs Vector("Bye", "Bye")
+      }
+    }
+  }
+
+  "receiveWhile" should "stop without error when timeout is exceeded" in {
+    testActorSystem { case (_, actorRef) =>
+      for {
+        _ <- actorRef ! "Bye"
+        _ <- actorRef ! "Bye"
+        _ <- actorRef ! "Bye"
+
+        receivedMessage <- receiveWhile(actorRef, 1 second) { case s: String =>
+          s
+        }
+      } yield {
+        receivedMessage should have size 3
+        receivedMessage should contain theSameElementsAs Vector("Bye", "Bye", "Bye")
+      }
+    }
+  }
 }
