@@ -26,25 +26,33 @@ lazy val commonSettings = Seq(
       Some("GitHub Package Registry".at(s"https://maven.pkg.github.com/$owner/$repo"))
   },
   publishConfiguration := publishConfiguration.value.withOverwrite(true),
-  publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true)
-)
-
-lazy val scala2Settings = commonSettings ++ Seq(
-  libraryDependencies += "org.typelevel" %% "kind-projector" % "0.13.2" cross CrossVersion.full,
-  scalacOptions ++= Seq(
-    "-language:implicitConversions",
-    "-language:existentials"
-  )
-)
-
-lazy val scala3Settings = commonSettings ++ Seq(
-  // Scala 3 specific settings can be added here
+  publishLocalConfiguration := publishLocalConfiguration.value.withOverwrite(true),
+  libraryDependencies ++= {
+    scalaBinaryVersion.value match {
+      case "2.13" =>
+        List(compilerPlugin("org.typelevel" % "kind-projector" % "0.13.3" cross CrossVersion.full))
+      case _ =>
+        Nil
+    }
+  },
+  scalacOptions ++= {
+    scalaBinaryVersion.value match {
+      case "2.13" =>
+        List(
+          "-language:implicitConversions",
+          "-language:existentials",
+          "-P:kind-projector:underscore-placeholders"
+        )
+      case _ => List("-Ykind-projector:underscores")
+    }
+  }
 )
 
 lazy val root = (project in file("."))
   .settings(commonSettings)
   .settings(
     name := "cats-actors",
+
     Compile / unmanagedSourceDirectories ++= Seq(
       baseDirectory.value / "src" / "main" / "scala"
     ),

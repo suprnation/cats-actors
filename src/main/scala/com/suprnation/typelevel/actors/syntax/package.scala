@@ -20,6 +20,8 @@ package object syntax
     extends AllActorSyntax
     with AllActorDebugSyntax
     with BooleanSyntax
+    with BroadcastSyntax
     with AssertionSyntax
     with ShutdownHookSyntax
-    with DebugActorSyntax {}
+    with DebugActorSyntax
+    with TypecheckSyntax {}
