@@ -95,7 +95,9 @@ trait ActorRefDebugSyntax {
               def waitForIdle: F[Unit] =
                 for {
                   _ <- checkIfMailboxIdle()
-                  _ <- if (checkSchedulerIdle) checkIfSchedulerIdle(systems.head) else Concurrent[F].unit
+                  _ <-
+                    if (checkSchedulerIdle) checkIfSchedulerIdle(systems.head)
+                    else Concurrent[F].unit
                   _ <- systemIdle.complete(()).void
                 } yield ()
               // Run this in the background...

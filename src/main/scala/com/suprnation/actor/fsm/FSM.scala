@@ -27,7 +27,13 @@ import com.suprnation.actor.dungeon.TimerSchedulerImpl.StoredTimer
 import com.suprnation.actor.fsm.FSM.{Event, StopEvent}
 import com.suprnation.actor.fsm.State.StateTimeoutWithSender
 import com.suprnation.actor.fsm.State.replies._
-import com.suprnation.actor.{ActorLogging, MinimalActorContext, ReplyingActor, SupervisionStrategy, Timers}
+import com.suprnation.actor.{
+  ActorLogging,
+  MinimalActorContext,
+  ReplyingActor,
+  SupervisionStrategy,
+  Timers
+}
 import com.suprnation.typelevel.actors.syntax.ActorRefSyntaxOps
 import com.suprnation.typelevel.fsm.syntax._
 

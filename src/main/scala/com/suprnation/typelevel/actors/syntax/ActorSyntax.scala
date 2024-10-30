@@ -24,9 +24,9 @@ import com.suprnation.actor.debug.TrackingActor
 
 trait ActorSyntax {
   implicit class ActorSyntaxFOps[
-    F[+_]: Parallel: Concurrent: Temporal,
-    Request,
-    Response
+      F[+_]: Parallel: Concurrent: Temporal,
+      Request,
+      Response
   ](fA: ReplyingActor[F, Request, Response]) {
     import TrackingActor.ActorRefs
 
@@ -36,8 +36,8 @@ trait ActorSyntax {
       TrackingActor.create[F, Request, Response](cache, name, fA)
 
     def trackWithCache(name: String): F[TrackingActor[F, Request, Response]] =
-      Ref.of[F, Map[String, ActorRefs[F]]](Map.empty).flatMap({ cache =>
+      Ref.of[F, Map[String, ActorRefs[F]]](Map.empty).flatMap { cache =>
         TrackingActor.create[F, Request, Response](cache, name, fA)
-      })
+      }
   }
 }

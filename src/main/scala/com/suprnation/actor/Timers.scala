@@ -31,7 +31,8 @@ trait Timers[F[+_], Request, Key] extends Actor[F, Request] {
   protected val timerGenRef: Ref[F, Int]
   protected val timersRef: Ref[F, Map[Key, StoredTimer[F]]]
 
-  private lazy val _timers = new TimerSchedulerImpl[F, Request, Key](timerGenRef, timersRef, context)
+  private lazy val _timers =
+    new TimerSchedulerImpl[F, Request, Key](timerGenRef, timersRef, context)
   final def timers: TimerScheduler[F, Request, Key] = _timers
 
   override def aroundPreRestart(reason: Option[Throwable], message: Option[Any]): F[Unit] =
@@ -46,10 +47,12 @@ trait Timers[F[+_], Request, Key] extends Actor[F, Request] {
         Async[F]
           .fromTry(Try(timer.asInstanceOf[Timer[F, Request, Key]]))
           .flatMap(t =>
-            _timers.interceptTimerMsg(t).ifM(
-              super.aroundReceive(receive, t.msg),
-              unhandled(t.msg)
-            )
+            _timers
+              .interceptTimerMsg(t)
+              .ifM(
+                super.aroundReceive(receive, t.msg),
+                unhandled(t.msg)
+              )
           )
 
       case _ => super.aroundReceive(receive, msg)

@@ -31,7 +31,10 @@ trait ActorSystemDebugSyntax {
   final implicit class ActorSystemDebugOps[F[+_]: Concurrent: Parallel: Temporal: Console](
       actorSystem: ActorSystem[F]
   ) {
-    def waitForIdle(checkSchedulerIdle: Boolean = true, maxTimeout: Duration = 30 second): F[List[NoSendActorRef[F]]] =
+    def waitForIdle(
+        checkSchedulerIdle: Boolean = true,
+        maxTimeout: Duration = 30 second
+    ): F[List[NoSendActorRef[F]]] =
       Concurrent[F]
         .race(
           for {

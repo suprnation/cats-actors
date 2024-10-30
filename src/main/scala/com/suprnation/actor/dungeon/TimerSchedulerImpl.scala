@@ -27,33 +27,28 @@ import scala.concurrent.duration.FiniteDuration
 
 sealed trait TimerScheduler[F[_], Request, Key] {
 
-  /**
-   * Start a timer that will send `msg` once to the `self` actor after
-   * the given `timeout`.
-   */
+  /** Start a timer that will send `msg` once to the `self` actor after
+    * the given `timeout`.
+    */
   def startSingleTimer(key: Key, msg: Request, delay: FiniteDuration): F[Unit]
 
-  /**
-   * Scala API: Schedules a message to be sent repeatedly to the `self` actor with a
-   * fixed `delay` between messages.
-   */
+  /** Scala API: Schedules a message to be sent repeatedly to the `self` actor with a
+    * fixed `delay` between messages.
+    */
   def startTimerWithFixedDelay(key: Key, msg: Request, delay: FiniteDuration): F[Unit]
 
-  /**
-   * Check if a timer with a given `key` is active.
-   */
+  /** Check if a timer with a given `key` is active.
+    */
   def isTimerActive(key: Key): F[Boolean]
 
-  /**
-   * Cancel a timer with a given `key`.
-   * If canceling a timer that was already canceled, or key never was used to start a timer
-   * this operation will do nothing.
-   */
+  /** Cancel a timer with a given `key`.
+    * If canceling a timer that was already canceled, or key never was used to start a timer
+    * this operation will do nothing.
+    */
   def cancel(key: Key): F[Unit]
 
-  /**
-   * Cancel all timers.
-   */
+  /** Cancel all timers.
+    */
   def cancelAll: F[Unit]
 
 }
@@ -74,36 +69,37 @@ private[actor] object TimerSchedulerImpl {
     }
   }
 
-  final case class Timer[F[+_] : Async, Request, Key](
-    key: Key,
-    msg: Request,
-    mode: TimerMode,
-    generation: Int,
-    owner: ActorRef[F, Request]
-  )(scheduler: Scheduler[F]) extends SystemCommand {
+  final case class Timer[F[+_]: Async, Request, Key](
+      key: Key,
+      msg: Request,
+      mode: TimerMode,
+      generation: Int,
+      owner: ActorRef[F, Request]
+  )(scheduler: Scheduler[F])
+      extends SystemCommand {
 
     def schedule(
-      actor: ActorRef[F, Request],
-      timeout: FiniteDuration
+        actor: ActorRef[F, Request],
+        timeout: FiniteDuration
     ): F[Fiber[F, Throwable, Unit]] =
       mode match {
-        case Single => scheduler.scheduleOnce_(timeout)(actor !* this)
+        case Single     => scheduler.scheduleOnce_(timeout)(actor !* this)
         case FixedDelay => scheduler.scheduleWithFixedDelay(timeout, timeout)(actor !* this)
       }
   }
 
   final case class StoredTimer[F[+_]](
-    generation: Int,
-    fiber: Fiber[F, Throwable, Unit]
+      generation: Int,
+      fiber: Fiber[F, Throwable, Unit]
   ) {
     def cancel: F[Unit] = fiber.cancel
   }
 }
 
-private[actor] class TimerSchedulerImpl[F[+_] : Async, Request, Key](
-  private val timerGenRef: Ref[F, Int],
-  private val timersRef: Ref[F, Map[Key, StoredTimer[F]]],
-  private val context: ActorContext[F, Request, Any]
+private[actor] class TimerSchedulerImpl[F[+_]: Async, Request, Key](
+    private val timerGenRef: Ref[F, Int],
+    private val timersRef: Ref[F, Map[Key, StoredTimer[F]]],
+    private val context: ActorContext[F, Request, Any]
 ) extends TimerScheduler[F, Request, Key] {
 
   private lazy val self: ActorRef[F, Request] = context.self
@@ -115,35 +111,35 @@ private[actor] class TimerSchedulerImpl[F[+_] : Async, Request, Key](
     startTimer(key, msg, delay, FixedDelay)
 
   private def startTimer(
-    key: Key,
-    msg: Request,
-    timeout: FiniteDuration,
-    mode: TimerMode
+      key: Key,
+      msg: Request,
+      timeout: FiniteDuration,
+      mode: TimerMode
   ): F[Unit] =
     for {
       gen <- timerGenRef.getAndUpdate(_ + 1)
       timer = Timer(key, msg, mode, gen, self)(context.system.scheduler)
       fiber <- timer.schedule(self, timeout)
       _ <-
-        timersRef.flatModify({ timers =>
+        timersRef.flatModify { timers =>
           (
             timers + (key -> StoredTimer(gen, fiber)),
             timers.get(key).map(_.cancel).getOrElse(Async[F].unit)
           )
-        })
+        }
     } yield ()
 
   def isTimerActive(key: Key): F[Boolean] = timersRef.get.map(_.contains(key))
 
   def cancel(key: Key): F[Unit] =
-    timersRef.flatModify({ timers =>
+    timersRef.flatModify { timers =>
       (timers - key, timers.get(key).map(_.cancel).getOrElse(Async[F].unit))
-    })
+    }
 
   def cancelAll: F[Unit] =
-    timersRef.flatModify({ timers =>
+    timersRef.flatModify { timers =>
       (Map.empty, timers.view.values.toList.traverse_(_.cancel))
-    })
+    }
 
   def interceptTimerMsg(t: Timer[F, Request, Key]): F[Boolean] =
     if (!(t.owner eq self)) Async[F].pure(false)
