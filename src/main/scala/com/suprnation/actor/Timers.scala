@@ -43,7 +43,7 @@ trait Timers[F[+_], Request, Key] extends Actor[F, Request] {
 
   override def aroundReceive(receive: Receive[F, Request], msg: Any): F[Any] =
     msg match {
-      case timer: Timer[_, _, _] =>
+      case timer @ Timer(_, _, _, _, _) =>
         Async[F]
           .fromTry(Try(timer.asInstanceOf[Timer[F, Request, Key]]))
           .flatMap(t =>
