@@ -39,7 +39,7 @@ case class Envelope[F[+_], A](
 )
 case class EnvelopeWithDeferred[F[+_], A](
     envelope: Envelope[F, A],
-    deferred: Option[Deferred[F, Any]]
+    deferred: Option[Deferred[F, Either[Throwable, Any]]]
 )
 
 case class SystemMessageEnvelope[F[+_]](

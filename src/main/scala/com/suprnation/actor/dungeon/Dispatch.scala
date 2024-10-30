@@ -109,7 +109,7 @@ trait Dispatch[F[+_], Request, Response] {
 
   def ?(fa: Request): F[Response] =
     for {
-      deferred <- Deferred[F, Any]
+      deferred <- Deferred[F, Either[Throwable, Any]]
       _ <- sendMessage(
         Envelope(fa, self),
         Option(deferred)
@@ -119,7 +119,7 @@ trait Dispatch[F[+_], Request, Response] {
 
   override def sendMessage(
       msg: Envelope[F, Any],
-      deferred: Option[Deferred[F, Any]]
+      deferred: Option[Deferred[F, Either[Throwable, Any]]]
   ): F[Unit] =
     // Here we need to see if the system is terminated... if it is we send all messages to the dead letter
     dispatchContext.mailbox
