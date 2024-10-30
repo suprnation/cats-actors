@@ -17,23 +17,27 @@
 package com.suprnation.typelevel.actors.syntax
 
 import cats.Parallel
-import cats.effect.kernel.Sync
-import cats.effect.std.Console
 import cats.effect.{Concurrent, Ref, Temporal}
+import cats.implicits.toFlatMapOps
 import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.debug.TrackingActor
 
 trait ActorSyntax {
-  implicit class ActorSyntaxFOps[F[
-      +_
-  ]: Sync: Parallel: Concurrent: Temporal: Console, Request, Response](
-      fA: ReplyingActor[F, Request, Response]
-  ) {
+  implicit class ActorSyntaxFOps[
+    F[+_]: Parallel: Concurrent: Temporal,
+    Request,
+    Response
+  ](fA: ReplyingActor[F, Request, Response]) {
     import TrackingActor.ActorRefs
 
     def track(name: String)(implicit
         cache: Ref[F, Map[String, ActorRefs[F]]]
     ): F[TrackingActor[F, Request, Response]] =
       TrackingActor.create[F, Request, Response](cache, name, fA)
+
+    def trackWithCache(name: String): F[TrackingActor[F, Request, Response]] =
+      Ref.of[F, Map[String, ActorRefs[F]]](Map.empty).flatMap({ cache =>
+        TrackingActor.create[F, Request, Response](cache, name, fA)
+      })
   }
 }

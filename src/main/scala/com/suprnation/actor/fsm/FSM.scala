@@ -16,17 +16,18 @@
 
 package com.suprnation.actor.fsm
 
+import cats.Monoid
 import cats.effect._
 import cats.effect.implicits._
 import cats.effect.std.Console
 import cats.implicits._
-import cats.{Monoid, Parallel}
 import com.suprnation.actor.Actor.{Actor, ReplyingReceive}
 import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
+import com.suprnation.actor.dungeon.TimerSchedulerImpl.StoredTimer
 import com.suprnation.actor.fsm.FSM.{Event, StopEvent}
 import com.suprnation.actor.fsm.State.StateTimeoutWithSender
 import com.suprnation.actor.fsm.State.replies._
-import com.suprnation.actor.{ActorLogging, MinimalActorContext, ReplyingActor, SupervisionStrategy}
+import com.suprnation.actor.{ActorLogging, MinimalActorContext, ReplyingActor, SupervisionStrategy, Timers}
 import com.suprnation.typelevel.actors.syntax.ActorRefSyntaxOps
 import com.suprnation.typelevel.fsm.syntax._
 
@@ -69,7 +70,8 @@ object FSM {
 
 private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
     extends Actor[F, Any]
-    with ActorLogging[F, Any] {
+    with ActorLogging[F, Any]
+    with Timers[F, Any, String] {
 
   type StateFunction[R] =
     StateManager[F, S, D, Request, Response] => PartialFunction[FSM.Event[D, R], F[
@@ -97,8 +99,6 @@ private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
   val nextStateRef: Ref[F, Option[State[S, D, Request, Response]]]
   protected val generationRef: Ref[F, Int]
   protected val timeoutFiberRef: Ref[F, Option[Fiber[F, Throwable, Unit]]]
-  protected val timerRef: Ref[F, Map[String, StoredTimer[F]]]
-  protected val timerGen: Ref[F, Int]
 
   // State manager will allow us to move from state to state.
   private val stateManager: StateManager[F, S, D, Request, Response] =
@@ -143,50 +143,33 @@ private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
           msg: Request,
           delay: FiniteDuration
       ): F[Unit] =
-        startTimer(name, msg, delay, SingleMode)
+        (
+          if (config.debug) config.startTimer(name, msg, delay, false)
+          else Async[F].unit
+        ) >> timers.startSingleTimer(name, msg, delay)
 
       override def startTimerWithFixedDelay(
           name: String,
           msg: Request,
           delay: FiniteDuration
       ): F[Unit] =
-        startTimer(name, msg, delay, FixedDelayMode)
-
-      private def startTimer(
-          name: String,
-          msg: Request,
-          timeout: FiniteDuration,
-          mode: TimerMode
-      ): F[Unit] = for {
-        _ <-
-          if (config.debug) config.startTimer(name, msg, timeout, mode.repeat)
+        (
+          if (config.debug) config.startTimer(name, msg, delay, true)
           else Async[F].unit
-        gen <- timerGen.getAndUpdate(_ + 1)
-        timer = Timer(name, msg, mode, gen, self)(context.system.scheduler)
-        fiber <- timer.schedule(self, timeout)
-        _ <- timerRef.flatModify(timers =>
-          (
-            timers + (name -> StoredTimer(gen, fiber)),
-            timers.get(name).map(_.cancel).getOrElse(Async[F].unit)
-          )
-        )
-      } yield ()
+        ) >> timers.startTimerWithFixedDelay(name, msg, delay)
 
       override def cancelTimer(name: String): F[Unit] =
         (if (config.debug) config.cancelTimer(name) else Async[F].unit) >>
-          timerRef.flatModify(timers =>
-            (timers - name, timers.get(name).map(_.cancel).getOrElse(Async[F].unit))
-          )
+          timers.cancel(name)
 
       override def isTimerActive(name: String): F[Boolean] =
-        timerRef.get.map(_.contains(name))
+        timers.isTimerActive(name)
     }
 
   private def cancelTimeout: F[Unit] =
     timeoutFiberRef.get.flatMap(_.fold(Sync[F].unit)(_.cancel))
 
-  private def cancelTimers: F[Unit] =
-    timerRef.getAndSet(Map()) >>= (_.values.toList.traverse_(_.cancel))
+  private def cancelTimers: F[Unit] = timers.cancelAll
 
   private def handleTransition(prev: S, next: S, nextStateData: D): F[Unit] = {
     lazy val context: TransitionContext[F, S, D, Request, Response] =
@@ -216,21 +199,6 @@ private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
           processMsg(StateTimeoutWithSender(sender, msg), "state timeout"),
           Monoid[Response].empty.pure[F]
         )
-
-    case t @ Timer(name, msg, mode, gen, owner) =>
-      if (!(owner eq self)) Monoid[Response].empty.pure[F]
-      else
-        timerRef.get
-          .map(timers => (timers contains name) && (timers(name).generation == gen))
-          .ifM(
-            cancelTimeout >> generationRef.update(_ + 1) >>
-              (if (!mode.repeat)
-                 timerRef.update(_ - name)
-               else
-                 Async[F].unit) >>
-              processMsg(msg, t),
-            Monoid[Response].empty.pure[F]
-          )
 
     case value =>
       cancelTimeout >> generationRef.update(_ + 1) >> processMsg(value, sender)
@@ -268,6 +236,7 @@ private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
               .getOrElse(
                 handleEvent(stateManager)(updatedEvent.asInstanceOf[FSM.Event[D, Any]])
               )
+
         case _ =>
           stateFunc(stateManager)
             .lift(event.asInstanceOf[Event[D, Request]])
@@ -534,8 +503,9 @@ case class FSMBuilder[F[+_]: Async, S, D, Request, Response: Monoid](
         override protected val generationRef: Ref[F, Int] = generation
         override protected val timeoutFiberRef: Ref[F, Option[Fiber[F, Throwable, Unit]]] =
           timeoutFiber
-        override protected val timerRef: Ref[F, Map[String, StoredTimer[F]]] = timerRefInit
-        override protected val timerGen: Ref[F, Int] = timerGenInit
+        override protected val timersRef: Ref[F, Map[String, StoredTimer[F]]] = timerRefInit
+        override protected val timerGenRef: Ref[F, Int] = timerGenInit
+        override val asyncEvidence: Async[F] = implicitly[Async[F]]
       }.asInstanceOf[ReplyingActor[F, Request, Response]]
     }
 
