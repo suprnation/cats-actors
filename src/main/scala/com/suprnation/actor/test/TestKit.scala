@@ -38,7 +38,7 @@ trait TestKit {
       Async[F].monotonic
         .flatMap { now =>
           Async[F].raiseUnless(now < stop)(
-            new TimeoutException(s"timeout ${max} expired: $message")
+            new TimeoutException(s"timeout $max expired: $message")
           )
         }
         .andWait(max.min(interval))
@@ -61,6 +61,21 @@ trait TestKit {
       // .flatTap(buf => IO.println(s">>> $buf"))
     } yield ()
 
+  def expectMsgPF[F[+_]: Async: Console](actor: ActorRef[F, ?], timeout: FiniteDuration = 1.minute)(
+      pF: PartialFunction[Any, Unit]
+  ): F[Unit] =
+    for {
+      _ <- awaitCond(
+        actor.messageBuffer.map { case (_, messages) =>
+          messages.exists(pF.isDefinedAt)
+        },
+        timeout,
+        100.millis,
+        s"partial function did not match any of the received messages"
+      )
+      _ <- actor.messageBuffer.map { case (_, messages) => messages.collectFirst(pF) }
+    } yield ()
+
   def expectNoMsg[F[+_]: Async](
       actor: ActorRef[F, ?],
       timeout: FiniteDuration = 1.minute
@@ -75,10 +90,36 @@ trait TestKit {
       )
     } yield ()
 
+  def expectTerminated[F[+_]: Async](actor: ActorRef[F, ?]): F[Unit] =
+    Async[F].ifM(actor.cell.flatMap(_.isTerminated))(
+      Async[F].unit,
+      Async[F].raiseError(new Exception("Expected actor to be terminated but was still alive"))
+    )
+
+  def receiveWhile[F[+_]: Async: Console, T](actor: ActorRef[F, ?], timeout: FiniteDuration)(
+      pF: PartialFunction[Any, T]
+  ): F[Seq[T]] =
+    for {
+      _ <- awaitCond(
+        actor.messageBuffer.map { case (_, messages) =>
+          !messages.forall(pF.isDefinedAt)
+        },
+        timeout,
+        100.millis,
+        s"all received messages match the given partial function"
+      ).recoverWith { case _: TimeoutException =>
+        Console[F].println(s"Timeout was reached in receiveWhile")
+      }
+
+      result <- actor.messageBuffer.map { case (_, messages) =>
+        messages.takeWhile(pF.isDefinedAt).map(pF)
+      }
+    } yield result
+
   def within[F[_]: Async, T](min: FiniteDuration, max: FiniteDuration)(f: => F[T]): F[T] = for {
     start <- Async[F].monotonic
     result <- f.timeout(max).adaptError { case t: TimeoutException =>
-      new TimeoutException(s"timeout ${max} expired while executing block")
+      new TimeoutException(s"timeout $max expired while executing block")
     }
     finish <- Async[F].monotonic
     diff = finish - start

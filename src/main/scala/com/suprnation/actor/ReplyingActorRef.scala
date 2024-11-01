@@ -232,9 +232,9 @@ case class InternalActorRef[F[+_]: Async: Console, Request, Response](
     assertCellActiveAndDo[Any](actorCell =>
       for {
         // Here we need to add the logic not to push to the queue anymore if it shutdown...
-        deferred <- Deferred[F, Any]
+        deferred <- Deferred[F, Either[Throwable, Any]]
         _ <- actorCell.sendMessage(Envelope(fa, sender, receiver), Option(deferred))
-        result <- deferred.get
+        result <- deferred.get.rethrow
       } yield result
     )
 

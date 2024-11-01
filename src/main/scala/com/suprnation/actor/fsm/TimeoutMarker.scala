@@ -14,14 +14,15 @@
  * limitations under the License.
  */
 
-package com.suprnation.typelevel.actors
+package com.suprnation.actor.fsm
 
-package object syntax
-    extends AllActorSyntax
-    with AllActorDebugSyntax
-    with BooleanSyntax
-    with BroadcastSyntax
-    with AssertionSyntax
-    with ShutdownHookSyntax
-    with DebugActorSyntax
-    with TypecheckSyntax {}
+import com.suprnation.actor.ActorRef.NoSendActorRef
+import com.suprnation.actor.SystemCommand
+
+/** INTERNAL API
+  */
+case class TimeoutMarker[F[+_], Request](
+    generation: Long,
+    originalSender: Option[NoSendActorRef[F]],
+    request: Request
+) extends SystemCommand
