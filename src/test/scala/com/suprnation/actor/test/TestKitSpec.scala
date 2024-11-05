@@ -138,6 +138,23 @@ class TestKitSpec extends AsyncFlatSpec with Matchers with TestKit {
     }
   }
 
+  "receiveWhile" should "stop without error when timeout is exceeded" in {
+    testActorSystem { case (_, actorRef) =>
+      for {
+        _ <- actorRef ! "Bye"
+        _ <- actorRef ! "Bye"
+        _ <- actorRef ! "Bye"
+
+        receivedMessage <- receiveWhile(actorRef, 1 second) { case s: String =>
+          s
+        }
+      } yield {
+        receivedMessage should have size 3
+        receivedMessage should contain theSameElementsAs Vector("Bye", "Bye", "Bye")
+      }
+    }
+  }
+
   "within" should "raise exception when code block takes longer than max time" in {
     testActorSystem(Actor.withReceive[IO, Any] { case s =>
       IO.sleep(400 millis).as(s)
