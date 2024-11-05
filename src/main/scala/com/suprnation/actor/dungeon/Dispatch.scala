@@ -83,8 +83,6 @@ trait Dispatch[F[+_], Request, Response] {
 
   final def numberOfMessages: F[Int] = dispatchContext.mailbox.numberOfMessages
 
-  final def isTerminated: F[Boolean] = dispatchContext.mailbox.isClosed
-
   final def suspend(causeByFailure: Option[Throwable]): F[Unit] =
     this
       .sendSystemMessage(Envelope.system(SystemMessage.Suspend(causeByFailure)))

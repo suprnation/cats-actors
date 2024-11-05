@@ -18,6 +18,7 @@ package com.suprnation.actor.test
 
 import cats.effect.IO
 import cats.effect.unsafe.implicits.global
+import com.suprnation.actor.Actor.Actor
 import com.suprnation.actor.ActorRef.ActorRef
 import com.suprnation.actor.debug.TrackingActor
 import com.suprnation.actor.{Actor, ActorSystem}
@@ -26,6 +27,7 @@ import org.scalatest.Assertion
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import java.util.concurrent.TimeoutException
 import scala.concurrent.Future
 import scala.concurrent.duration.DurationInt
 import scala.language.postfixOps
@@ -45,6 +47,19 @@ class TestKitSpec extends AsyncFlatSpec with Matchers with TestKit {
               }
             )
           )
+
+          result <- test(actorSystem, actorRef)
+        } yield result
+      }
+      .unsafeToFuture()
+
+  protected def testActorSystem(
+      actor: Actor[IO, Any]
+  )(test: Fixture => IO[Assertion]): Future[Assertion] =
+    ActorSystem[IO]()
+      .use { actorSystem =>
+        for {
+          actorRef <- actorSystem.actorOf(TrackingActor.create[IO, Any, Any](actor))
 
           result <- test(actorSystem, actorRef)
         } yield result
@@ -72,11 +87,10 @@ class TestKitSpec extends AsyncFlatSpec with Matchers with TestKit {
   }
 
   "expectMsgPF" should "succeed when actor received expected message defined in partial function" in {
-    testActorSystem { case (actorSystem, actorRef) =>
+    testActorSystem { case (_, actorRef) =>
       for {
         _ <- actorRef ! "Hello"
 
-        _ <- actorSystem.waitForIdle()
         _ <- expectMsgPF(actorRef, 1 second) {
           case s: String if s == "Hello" => ()
         }
@@ -114,20 +128,39 @@ class TestKitSpec extends AsyncFlatSpec with Matchers with TestKit {
     }
   }
 
-  "receiveWhile" should "stop without error when timeout is exceeded" in {
-    testActorSystem { case (_, actorRef) =>
-      for {
-        _ <- actorRef ! "Bye"
-        _ <- actorRef ! "Bye"
-        _ <- actorRef ! "Bye"
+  "within" should "execute code block within given time bounds" in {
+    testActorSystem(Actor.withReceive[IO, Any] { case s =>
+      IO.sleep(150 millis).as(s)
+    }) { case (_, actorRef) =>
+      within(100 millis, 300 millis)(
+        actorRef ? "Delayed Echo"
+      ).map(_ should be("Delayed Echo"))
+    }
+  }
 
-        receivedMessage <- receiveWhile(actorRef, 1 second) { case s: String =>
-          s
+  "within" should "raise exception when code block takes longer than max time" in {
+    testActorSystem(Actor.withReceive[IO, Any] { case s =>
+      IO.sleep(400 millis).as(s)
+    }) { case (_, actorRef) =>
+      within(100 millis, 300 millis)(
+        actorRef ? "Delayed Echo"
+      ).as("Within Successful")
+        .recover { case _: TimeoutException =>
+          "Within Timed Out"
         }
-      } yield {
-        receivedMessage should have size 3
-        receivedMessage should contain theSameElementsAs Vector("Bye", "Bye", "Bye")
-      }
+        .map(_ should be("Within Timed Out"))
+    }
+  }
+
+  "within" should "raise exception when code block takes less than min time" in {
+    testActorSystem(Actor.ignoring[IO, Any]) { case (_, actorRef) =>
+      within(100 millis, 300 millis)(
+        actorRef ? "Delayed Echo"
+      ).as("Within Successful")
+        .recover { case _: Exception =>
+          "Within Too Fast"
+        }
+        .map(_ should be("Within Too Fast"))
     }
   }
 }
