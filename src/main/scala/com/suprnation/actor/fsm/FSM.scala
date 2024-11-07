@@ -77,7 +77,7 @@ object FSM {
 private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
     extends Actor[F, Any]
     with ActorLogging[F, Any]
-    with Timers[F, Any, String] {
+    with Timers[F, Any, Any, String] {
 
   type StateFunction[R] =
     StateManager[F, S, D, Request, Response] => PartialFunction[FSM.Event[D, R], F[

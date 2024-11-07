@@ -17,14 +17,14 @@
 package com.suprnation.typelevel.actors.syntax
 
 import cats.Parallel
-import cats.effect.{Concurrent, Ref, Temporal}
+import cats.effect.{Async, Ref}
 import cats.implicits.toFlatMapOps
 import com.suprnation.actor.ReplyingActor
 import com.suprnation.actor.debug.TrackingActor
 
 trait ActorSyntax {
   implicit class ActorSyntaxFOps[
-      F[+_]: Parallel: Concurrent: Temporal,
+      F[+_]: Async: Parallel,
       Request,
       Response
   ](fA: ReplyingActor[F, Request, Response]) {

@@ -37,6 +37,16 @@ sealed trait TimerScheduler[F[_], Request, Key] {
     */
   def startTimerWithFixedDelay(key: Key, msg: Request, delay: FiniteDuration): F[Unit]
 
+  /** Schedules a message to be sent repeatedly to the `self` actor with a
+    * fixed `delay` between messages after the `initialDelay`.
+    */
+  def startTimerWithFixedDelay(
+      key: Key,
+      msg: Request,
+      initialDelay: FiniteDuration,
+      delay: FiniteDuration
+  ): F[Unit]
+
   /** Check if a timer with a given `key` is active.
     */
   def isTimerActive(key: Key): F[Boolean]
@@ -60,7 +70,7 @@ private[actor] object TimerSchedulerImpl {
   }
 
   object TimerMode {
-    case object FixedDelay extends TimerMode {
+    case class FixedDelay(initialDelay: FiniteDuration) extends TimerMode {
       override def repeat: Boolean = true
     }
 
@@ -80,11 +90,12 @@ private[actor] object TimerSchedulerImpl {
 
     def schedule(
         actor: ActorRef[F, Request],
-        timeout: FiniteDuration
+        delay: FiniteDuration
     ): F[Fiber[F, Throwable, Unit]] =
       mode match {
-        case Single     => scheduler.scheduleOnce_(timeout)(actor !* this)
-        case FixedDelay => scheduler.scheduleWithFixedDelay(timeout, timeout)(actor !* this)
+        case Single => scheduler.scheduleOnce_(delay)(actor !* this)
+        case FixedDelay(initialDelay) =>
+          scheduler.scheduleWithFixedDelay(initialDelay, delay)(actor !* this)
       }
   }
 
@@ -96,10 +107,10 @@ private[actor] object TimerSchedulerImpl {
   }
 }
 
-private[actor] class TimerSchedulerImpl[F[+_]: Async, Request, Key](
+private[actor] class TimerSchedulerImpl[F[+_]: Async, Request, Response, Key](
     private val timerGenRef: Ref[F, Int],
     private val timersRef: Ref[F, Map[Key, StoredTimer[F]]],
-    private val context: ActorContext[F, Request, Any]
+    private val context: ActorContext[F, Request, Response]
 ) extends TimerScheduler[F, Request, Key] {
 
   private lazy val self: ActorRef[F, Request] = context.self
@@ -108,18 +119,26 @@ private[actor] class TimerSchedulerImpl[F[+_]: Async, Request, Key](
     startTimer(key, msg, delay, Single)
 
   def startTimerWithFixedDelay(key: Key, msg: Request, delay: FiniteDuration): F[Unit] =
-    startTimer(key, msg, delay, FixedDelay)
+    startTimer(key, msg, delay, FixedDelay(delay))
+
+  def startTimerWithFixedDelay(
+      key: Key,
+      msg: Request,
+      initialDelay: FiniteDuration,
+      delay: FiniteDuration
+  ): F[Unit] =
+    startTimer(key, msg, delay, FixedDelay(initialDelay))
 
   private def startTimer(
       key: Key,
       msg: Request,
-      timeout: FiniteDuration,
+      delay: FiniteDuration,
       mode: TimerMode
   ): F[Unit] =
     for {
       gen <- timerGenRef.getAndUpdate(_ + 1)
       timer = Timer(key, msg, mode, gen, self)(context.system.scheduler)
-      fiber <- timer.schedule(self, timeout)
+      fiber <- timer.schedule(self, delay)
       _ <-
         timersRef.flatModify { timers =>
           (
@@ -133,7 +152,10 @@ private[actor] class TimerSchedulerImpl[F[+_]: Async, Request, Key](
 
   def cancel(key: Key): F[Unit] =
     timersRef.flatModify { timers =>
-      (timers - key, timers.get(key).map(_.cancel).getOrElse(Async[F].unit))
+      (
+        timers - key,
+        timers.get(key).map(_.cancel).getOrElse(Async[F].unit)
+      )
     }
 
   def cancelAll: F[Unit] =
@@ -142,7 +164,8 @@ private[actor] class TimerSchedulerImpl[F[+_]: Async, Request, Key](
     }
 
   def interceptTimerMsg(t: Timer[F, Request, Key]): F[Boolean] =
-    if (!(t.owner eq self)) Async[F].pure(false)
+    if (!(t.owner eq self))
+      Async[F].pure(false)
     else
       timersRef.get
         .map(_.get(t.key).exists(_.generation == t.generation))
