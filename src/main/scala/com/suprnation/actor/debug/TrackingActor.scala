@@ -133,7 +133,7 @@ final case class TrackingActor[F[+_], Request, Response](
     timersRef: Ref[F, Timers.TimerMap[F, String]],
     proxy: ReplyingActor[F, Request, Response]
 )(implicit val asyncEvidence: Async[F], parallelEvidence: Parallel[F])
-  extends ReplyingActor[F, Request, Response]
+    extends ReplyingActor[F, Request, Response]
     with ActorConfig
     with Timers[F, Request, Response, String] {
 

@@ -64,8 +64,8 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
       fixture(TimedActor.apply) { case FixtureParams(actorSystem, parentActor, trackerActor) =>
         val startFixedDelayTimer = StartFixedDelayTimer("KeyA", 150.millis)
 
-          (parentActor ! startFixedDelayTimer) >>
-            expectMsgs(trackerActor, 500.millis)(Seq.fill(3)(counterAddA): _*) >>
+        (parentActor ! startFixedDelayTimer) >>
+          expectMsgs(trackerActor, 500.millis)(Seq.fill(3)(counterAddA): _*) >>
           (parentActor ! CancelTimer("KeyA")) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
@@ -80,7 +80,9 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
           StartFixedAfterInitialDelayTimer("KeyA", initialDelay = 100.millis, 300.millis)
 
         (parentActor ! startFixedAfterInitialDelayTimer) >>
-          expectMsgs(trackerActor, 750.millis)(startFixedAfterInitialDelayTimer +: Seq.fill(3)(counterAddA): _*) >>
+          expectMsgs(trackerActor, 750.millis)(
+            startFixedAfterInitialDelayTimer +: Seq.fill(3)(counterAddA): _*
+          ) >>
           (parentActor ! cancelTimerA) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
@@ -121,8 +123,11 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
       fixture(TimedActor.apply) { case FixtureParams(actorSystem, parentActor, trackerActor) =>
         val startTimerB = StartSingleTimer("KeyB", 150.millis)
         (parentActor ! startTimerA) >>
+          IO.sleep(50.millis) >>
           (parentActor ! startTimerB) >>
-          expectMsgs(trackerActor, 700.millis)(Seq(startTimerA, startTimerB, counterAddA, CounterAdd("KeyB")): _*) >>
+          expectMsgs(trackerActor, 700.millis)(
+            Seq(startTimerA, startTimerB, counterAddA, CounterAdd("KeyB")): _*
+          ) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
 
@@ -165,12 +170,13 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
 
   it should "support replying actors" in {
     val count: Int =
-      fixture(ReplyingTimedActor.apply) { case FixtureParams(actorSystem, parentActor, trackerActor) =>
-        for {
-          reply <- parentActor ? startTimerA
-          _ <- expectMsgs(trackerActor, 500.millis)(Seq(startTimerA, counterAddA): _*)
-          _ <- actorSystem.waitForIdle(maxTimeout = 500.millis).void
-        } yield reply shouldEqual Ok
+      fixture(ReplyingTimedActor.apply) {
+        case FixtureParams(actorSystem, parentActor, trackerActor) =>
+          for {
+            reply <- parentActor ? startTimerA
+            _ <- expectMsgs(trackerActor, 500.millis)(Seq(startTimerA, counterAddA): _*)
+            _ <- actorSystem.waitForIdle(maxTimeout = 500.millis).void
+          } yield reply shouldEqual Ok
       }
 
     count shouldEqual 1
