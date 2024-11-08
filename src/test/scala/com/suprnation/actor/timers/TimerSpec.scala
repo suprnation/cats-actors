@@ -52,7 +52,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
     val count: Int =
       fixture(TimedActor.apply) { case FixtureParams(actorSystem, parentActor, trackerActor) =>
         (parentActor ! startTimerA) >>
-          expectMsgs(trackerActor, 150.millis)(Seq(startTimerA, counterAddA): _*) >>
+          expectMsgSet(trackerActor, 150.millis)(Seq(startTimerA, counterAddA): _*) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
 
@@ -65,7 +65,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
         val startFixedDelayTimer = StartFixedDelayTimer("KeyA", 150.millis)
 
         (parentActor ! startFixedDelayTimer) >>
-          expectMsgs(trackerActor, 500.millis)(Seq.fill(3)(counterAddA): _*) >>
+          expectMsgSet(trackerActor, 500.millis)(Seq.fill(3)(counterAddA): _*) >>
           (parentActor ! CancelTimer("KeyA")) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
@@ -80,7 +80,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
           StartFixedAfterInitialDelayTimer("KeyA", initialDelay = 100.millis, 300.millis)
 
         (parentActor ! startFixedAfterInitialDelayTimer) >>
-          expectMsgs(trackerActor, 750.millis)(
+          expectMsgSet(trackerActor, 750.millis)(
             startFixedAfterInitialDelayTimer +: Seq.fill(3)(counterAddA): _*
           ) >>
           (parentActor ! cancelTimerA) >>
@@ -97,7 +97,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
           StartFixedAfterInitialDelayTimer("KeyA", initialDelay = 1.second, 100.millis)
 
         (parentActor ! startFixedAfterInitialDelayTimer) >>
-          expectMsgs(trackerActor, 300.millis)(startFixedAfterInitialDelayTimer) >>
+          expectMsgSet(trackerActor, 300.millis)(startFixedAfterInitialDelayTimer) >>
           expectNoMsg(trackerActor, 300.millis) >>
           (parentActor ! cancelTimerA) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
@@ -112,7 +112,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
         (parentActor ! startTimerA) >>
           (parentActor ! startTimerA) >>
           (parentActor ! startTimerA) >>
-          expectMsgs(trackerActor, 300.millis)(Seq.fill(3)(startTimerA) :+ counterAddA: _*) >>
+          expectMsgSet(trackerActor, 300.millis)(Seq.fill(3)(startTimerA) :+ counterAddA: _*) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
 
@@ -126,7 +126,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
         (parentActor ! startTimerA) >>
           IO.sleep(50.millis) >>
           (parentActor ! startTimerB) >>
-          expectMsgs(trackerActor, 700.millis)(
+          expectMsgSet(trackerActor, 700.millis)(
             Seq(startTimerA, startTimerB, counterAddA, CounterAdd("KeyB")): _*
           ) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
@@ -140,7 +140,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
       fixture(TimedActor.apply) { case FixtureParams(actorSystem, parentActor, trackerActor) =>
         (parentActor ! startTimerA) >>
           (parentActor ! cancelTimerA) >>
-          expectMsgs(trackerActor, 500.millis)(Seq(startTimerA, cancelTimerA): _*) >>
+          expectMsgSet(trackerActor, 500.millis)(Seq(startTimerA, cancelTimerA): _*) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
 
@@ -152,7 +152,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
       fixture(TimedActor.apply) { case FixtureParams(_, parentActor, trackerActor) =>
         (parentActor ! startTimerA) >>
           (parentActor ! RestartCommand) >>
-          expectMsgs(trackerActor, 500.millis)(Seq(startTimerA, RestartCommand): _*)
+          expectMsgSet(trackerActor, 500.millis)(Seq(startTimerA, RestartCommand): _*)
       }
 
     count shouldEqual 0
@@ -163,7 +163,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
       fixture(TimedActor.apply) { case FixtureParams(_, parentActor, trackerActor) =>
         (parentActor ! startTimerA) >>
           (parentActor ! StopCommand) >>
-          expectMsgs(trackerActor, 500.millis)(Seq(startTimerA, StopCommand): _*)
+          expectMsgSet(trackerActor, 500.millis)(Seq(startTimerA, StopCommand): _*)
       }
 
     count shouldEqual 0
@@ -175,7 +175,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
         case FixtureParams(actorSystem, parentActor, trackerActor) =>
           for {
             reply <- parentActor ? startTimerA
-            _ <- expectMsgs(trackerActor, 500.millis)(Seq(startTimerA, counterAddA): _*)
+            _ <- expectMsgSet(trackerActor, 500.millis)(Seq(startTimerA, counterAddA): _*)
             _ <- actorSystem.waitForIdle(maxTimeout = 500.millis).void
           } yield reply shouldEqual Ok
       }

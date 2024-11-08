@@ -48,11 +48,41 @@ trait TestKit {
   def expectMsgs[F[+_]: Async: Console](actor: ActorRef[F, ?], timeout: FiniteDuration = 1.minute)(
       messages: Any*
   ): F[Unit] =
+    expectMsgInternal(
+      actor,
+      timeout,
+      startQ => actor.messageBuffer.map(_._2 == startQ._2 ++ messages),
+      messages
+    )
+
+  /** Waits and asserts for a set of messages to be received by the provided actor.
+    * This method ensures that the actor’s message buffer contains all messages, but it does not assert exclusivity.
+    * Additional messages in the buffer will not cause this method to fail.
+    */
+  def expectMsgSet[F[+_]: Async: Console](
+      actor: ActorRef[F, ?],
+      timeout: FiniteDuration = 1.minute
+  )(
+      messages: Any*
+  ): F[Unit] =
+    expectMsgInternal(
+      actor,
+      timeout,
+      _ => actor.messageBuffer.map(_._2.intersect(messages) == messages),
+      messages
+    )
+
+  private def expectMsgInternal[F[+_]: Async: Console](
+      actor: ActorRef[F, ?],
+      timeout: FiniteDuration,
+      condition: ((String, Seq[Any])) => F[Boolean],
+      messages: Any*
+  ): F[Unit] =
     for {
       startQ <- actor.messageBuffer
       _ <- Console[F].println(s"Expecting: $messages in queue: $startQ")
       _ <- awaitCond(
-        actor.messageBuffer.map(_._2.intersect(messages) == messages),
+        condition(startQ),
         timeout,
         100.millis,
         s"expecting messages: $messages"
