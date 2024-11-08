@@ -98,6 +98,7 @@ class TimerSpec extends AsyncFlatSpec with Matchers with TestKit {
 
         (parentActor ! startFixedAfterInitialDelayTimer) >>
           expectMsgs(trackerActor, 300.millis)(startFixedAfterInitialDelayTimer) >>
+          expectNoMsg(trackerActor, 300.millis) >>
           (parentActor ! cancelTimerA) >>
           actorSystem.waitForIdle(maxTimeout = 500.millis).void
       }
