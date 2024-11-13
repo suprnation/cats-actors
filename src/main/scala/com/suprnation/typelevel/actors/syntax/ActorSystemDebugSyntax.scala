@@ -32,8 +32,8 @@ trait ActorSystemDebugSyntax {
       actorSystem: ActorSystem[F]
   ) {
     def waitForIdle(
-        checkSchedulerIdle: Boolean = true,
-        maxTimeout: Duration = 30 second
+        maxTimeout: Duration = 30 second,
+        checkSchedulerIdle: Boolean = true
     ): F[List[NoSendActorRef[F]]] =
       Concurrent[F]
         .race(
@@ -51,7 +51,7 @@ trait ActorSystemDebugSyntax {
               .pure[F]
               .ifM(
                 Temporal[F].unit,
-                waitForIdle(checkSchedulerIdle, maxTimeout).void
+                waitForIdle(maxTimeout, checkSchedulerIdle).void
               )
             _ <- deadLetters.waitForIdle
             _ <- actorSystem.isTerminated.ifM(
