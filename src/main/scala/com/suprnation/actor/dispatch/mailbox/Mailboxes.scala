@@ -79,7 +79,7 @@ object Mailboxes {
 
       @inline override val isSuspended: F[Boolean] = false.pure[F]
 
-      @inline override val isClosed: F[Boolean] = true.pure[F]
+      @inline override val isClosed: F[Boolean] = false.pure[F]
 
       @inline override val resume: F[Unit] =
         Concurrent[F].raiseError(

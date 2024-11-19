@@ -93,6 +93,7 @@ object ActorCell {
 
       override def currentMessage: Option[Envelope[F, Any]] = _currentMessage
 
+      var _isTerminated: Boolean = false
       var _isIdle: Boolean = true
       val isIdleTrue: F[Unit] = Temporal[F].delay { _isIdle = true }
 
@@ -283,6 +284,7 @@ object ActorCell {
           Temporal[F].delay {
             creationContext.actorContextOp = None
             _isIdle = true
+            _isTerminated = true
           }
 
       override def finishTerminate: F[Unit] =
@@ -330,6 +332,8 @@ object ActorCell {
               clearActorFields(false) >>
               clearFieldsForTermination
           )
+
+      override final def isTerminated: F[Boolean] = _isTerminated.pure[F]
 
       override def setReceiveTimeout(timeout: FiniteDuration, onTimeout: => Request): F[Unit] =
         receiveTimeout.setReceiveTimeout(timeout, onTimeout)
