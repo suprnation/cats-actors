@@ -37,9 +37,8 @@ trait StateContext[F[+_], S, D, Request, Response] {
   def isTimerActive(name: String): F[Boolean]
 }
 
-trait StateManager[F[+_], S, D, Request, Response]
+trait PreStartContext[F[+_], S, D, Request, Response]
     extends StateContext[F, S, D, Request, Response] {
-
   def forMax(timeoutData: Option[(FiniteDuration, Request)]): F[State[S, D, Request, Response]]
 
   def goto(nextStateName: S): F[State[S, D, Request, Response]]
@@ -51,6 +50,10 @@ trait StateManager[F[+_], S, D, Request, Response]
   def stop(reason: Reason): F[State[S, D, Request, Response]]
 
   def stop(reason: Reason, stateData: D): F[State[S, D, Request, Response]]
+}
+
+trait StateManager[F[+_], S, D, Request, Response]
+    extends PreStartContext[F, S, D, Request, Response] {
 
   def stayAndReply(
       replyValue: Response,

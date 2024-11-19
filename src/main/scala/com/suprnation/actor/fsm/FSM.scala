@@ -96,7 +96,7 @@ private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
   protected val terminateEvent: PartialFunction[StopEvent[S, D], F[Unit]]
   protected val onTerminationCallback: Option[(Reason, D) => F[Unit]]
 
-  protected val customPreStart: StateContext[F, S, D, Request, Response] => F[Unit]
+  protected val customPreStart: PreStartContext[F, S, D, Request, Response] => F[State[S, D, Request, Response]]
   protected val customPostStop: StateContext[F, S, D, Request, Response] => F[Unit]
   protected val customOnError: Function2[Throwable, Option[Any], F[Unit]]
   protected val customSupervisorStrategy: Option[SupervisionStrategy[F]]
@@ -195,7 +195,7 @@ private sealed abstract class FSM[F[+_]: Async, S, D, Request, Response: Monoid]
   }
 
   override def preStart: F[Unit] =
-    customPreStart(stateManager) >> (currentStateRef.get >>= makeTransition).void
+    (customPreStart(stateManager) >>= makeTransition).void
 
   override def receive: ReplyingReceive[F, Any, Response] = {
     case TimeoutMarker(gen, sender, msg) =>
@@ -362,7 +362,7 @@ object FSMBuilder {
       transitionEvent = Nil,
       terminateEvent = FSM.NullFunction,
       onTerminationCallback = Option.empty[(Reason, D) => F[Unit]],
-      preStart = (_: StateContext[F, S, D, Request, Response]) => Async[F].unit,
+      preStart = (c: PreStartContext[F, S, D, Request, Response]) => c.stay(),
       postStop = (_: StateContext[F, S, D, Request, Response]) => Async[F].unit,
       onError = (_: Throwable, _: Option[Any]) => Async[F].unit,
       supervisorStrategy = None
@@ -380,7 +380,7 @@ case class FSMBuilder[F[+_]: Async, S, D, Request, Response: Monoid](
     transitionEvent: List[FSM.TransitionHandler[F, S, D, Request, Response]],
     terminateEvent: PartialFunction[StopEvent[S, D], F[Unit]],
     onTerminationCallback: Option[(Reason, D) => F[Unit]],
-    preStart: StateContext[F, S, D, Request, Response] => F[Unit],
+    preStart: PreStartContext[F, S, D, Request, Response] => F[State[S, D, Request, Response]],
     postStop: StateContext[F, S, D, Request, Response] => F[Unit],
     onError: Function2[Throwable, Option[Any], F[Unit]],
     supervisorStrategy: Option[SupervisionStrategy[F]]
@@ -442,7 +442,7 @@ case class FSMBuilder[F[+_]: Async, S, D, Request, Response: Monoid](
     )
 
   def withPreStart(
-      preStart: StateContext[F, S, D, Request, Response] => F[Unit]
+      preStart: PreStartContext[F, S, D, Request, Response] => F[State[S, D, Request, Response]]
   ): FSMBuilder[F, S, D, Request, Response] =
     copy(
       preStart = preStart
@@ -496,7 +496,7 @@ case class FSMBuilder[F[+_]: Async, S, D, Request, Response: Monoid](
           builderSelf.terminateEvent
         override protected val onTerminationCallback: Option[(Reason, D) => F[Unit]] =
           builderSelf.onTerminationCallback
-        override protected val customPreStart: StateContext[F, S, D, Request, Response] => F[Unit] =
+        override protected val customPreStart: PreStartContext[F, S, D, Request, Response] => F[State[S, D, Request, Response]] =
           builderSelf.preStart
         override protected val customPostStop: StateContext[F, S, D, Request, Response] => F[Unit] =
           builderSelf.postStop

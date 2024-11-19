@@ -90,7 +90,7 @@ object TreenodeFsmActor {
               .using(startingData.andAlso(pong.processedBy))
           }
       }
-    }.withPreStart(_ => IO.sleep(creationDelay))
+    }.withPreStart(c => IO.sleep(creationDelay) >> c.stay())
       .withConfig(createConfig(name, dataRef))
       .withSupervisorStrategy(AllForOneStrategy[IO]() { case _: Throwable => Escalate })
       .startWith(InProgress, TreenodeData(Queue()))
