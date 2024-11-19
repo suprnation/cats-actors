@@ -17,74 +17,32 @@
 package com.suprnation.actor.debug
 
 import cats.Parallel
-import cats.effect.{Concurrent, Ref, Temporal}
+import cats.effect.{Async, Ref}
 import cats.implicits._
 import com.suprnation.actor.Actor.ReplyingReceive
 import com.suprnation.actor.utils.Unsafe
-import com.suprnation.actor.{ActorConfig, ReplyingActor, SupervisionStrategy}
+import com.suprnation.actor.{ActorConfig, ReplyingActor, SupervisionStrategy, Timers}
+
 import scala.collection.immutable.Queue
 
 object TrackingActor {
-  type ActorRefs[F[_]] = (
-      Ref[F, Int],
-      Ref[F, Int],
-      Ref[F, Int],
-      Ref[F, Int],
-      Ref[F, Int],
-      Ref[F, Int],
-      Ref[F, Int],
-      Ref[F, Queue[Any]],
-      Ref[F, Queue[(Option[Throwable], Option[Any])]],
-      Ref[F, Queue[(Throwable, Option[Any])]]
+  case class ActorRefs[F[+_]](
+      initCountRef: Ref[F, Int],
+      preStartCountRef: Ref[F, Int],
+      postStopCountRef: Ref[F, Int],
+      preRestartCountRef: Ref[F, Int],
+      postRestartCountRef: Ref[F, Int],
+      preSuspendCountRef: Ref[F, Int],
+      preResumeCountRef: Ref[F, Int],
+      messageBufferRef: Ref[F, Queue[Any]],
+      restartMessageBufferRef: Ref[F, Queue[(Option[Throwable], Option[Any])]],
+      errorMessageBufferRef: Ref[F, Queue[(Throwable, Option[Any])]],
+      timerGenRef: Ref[F, Int],
+      timersRef: Ref[F, Timers.TimerMap[F, String]]
   )
 
-  def create[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
-      proxy: ReplyingActor[F, Request, Response]
-  ): F[TrackingActor[F, Request, Response]] =
-    createInner[F, Request, Response](proxy)(_ => Concurrent[F].unit)
-
-  def create[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
-      cache: Ref[F, Map[String, ActorRefs[F]]],
-      stableName: String,
-      proxy: ReplyingActor[F, Request, Response]
-  ): F[TrackingActor[F, Request, Response]] =
-    cache.get.flatMap { currentCache =>
-      currentCache.get(stableName) match {
-        case Some(refs) =>
-          new TrackingActor[F, Request, Response](
-            refs._1,
-            refs._2,
-            refs._3,
-            refs._4,
-            refs._5,
-            refs._6,
-            refs._7,
-            refs._8,
-            refs._9,
-            refs._10,
-            proxy
-          ).pure[F]
-
-        case None =>
-          createInner(proxy)(refs => cache.update(_ + (stableName -> refs)))
-      }
-    }
-
-  private def createInner[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
-      proxy: ReplyingActor[F, Request, Response]
-  )(preCreateFn: ActorRefs[F] => F[Unit]): F[TrackingActor[F, Request, Response]] = {
-    def newRefs: (
-        F[Ref[F, Int]],
-        F[Ref[F, Int]],
-        F[Ref[F, Int]],
-        F[Ref[F, Int]],
-        F[Ref[F, Int]],
-        F[Ref[F, Int]],
-        F[Ref[F, Int]],
-        F[Ref[F, Queue[Any]]],
-        F[Ref[F, Queue[(Option[Throwable], Option[Any])]]],
-        F[Ref[F, Queue[(Throwable, Option[Any])]]]
-    ) = (
+  object ActorRefs {
+    def empty[F[+_]: Async]: F[ActorRefs[F]] = (
       Ref.of[F, Int](0),
       Ref.of[F, Int](0),
       Ref.of[F, Int](0),
@@ -96,42 +54,71 @@ object TrackingActor {
       Ref.of[F, Queue[(Option[Throwable], Option[Any])]](
         Queue.empty[(Option[Throwable], Option[Any])]
       ),
-      Ref.of[F, Queue[(Throwable, Option[Any])]](Queue.empty[(Throwable, Option[Any])])
-    )
-
-    newRefs.flatMapN {
-      case refs @ (
-            initCountRef,
-            preStartCountRef,
-            postStopCountRef,
-            preRestartCountRef,
-            postRestartCountRef,
-            preSuspendCountRef,
-            preResumeCountRef,
-            messageBufferRef,
-            restartMessageBufferRef,
-            errorMessageBufferRef
-          ) =>
-        preCreateFn(refs).as(
-          new TrackingActor[F, Request, Response](
-            initCountRef,
-            preStartCountRef,
-            postStopCountRef,
-            preRestartCountRef,
-            postRestartCountRef,
-            preSuspendCountRef,
-            preResumeCountRef,
-            messageBufferRef,
-            restartMessageBufferRef,
-            errorMessageBufferRef,
-            proxy
-          )
-        )
-    }
+      Ref.of[F, Queue[(Throwable, Option[Any])]](Queue.empty[(Throwable, Option[Any])]),
+      Timers.initGenRef[F],
+      Timers.initTimersRef[F, String]
+    ).mapN(ActorRefs.apply)
   }
+
+  def create[F[+_]: Async: Parallel, Request, Response](
+      proxy: ReplyingActor[F, Request, Response]
+  ): F[TrackingActor[F, Request, Response]] =
+    createInner[F, Request, Response](proxy)(_ => Async[F].unit)
+
+  def create[F[+_]: Async: Parallel, Request, Response](
+      cache: Ref[F, Map[String, ActorRefs[F]]],
+      stableName: String,
+      proxy: ReplyingActor[F, Request, Response]
+  ): F[TrackingActor[F, Request, Response]] =
+    cache.get.flatMap { currentCache =>
+      currentCache.get(stableName) match {
+        case Some(refs) =>
+          new TrackingActor[F, Request, Response](
+            refs.initCountRef,
+            refs.preStartCountRef,
+            refs.postStopCountRef,
+            refs.preRestartCountRef,
+            refs.postRestartCountRef,
+            refs.preSuspendCountRef,
+            refs.preResumeCountRef,
+            refs.messageBufferRef,
+            refs.restartMessageBufferRef,
+            refs.errorMessageBufferRef,
+            refs.timerGenRef,
+            refs.timersRef,
+            proxy
+          ).pure[F]
+
+        case None =>
+          createInner(proxy)(refs => cache.update(_ + (stableName -> refs)))
+      }
+    }
+
+  private def createInner[F[+_]: Async: Parallel, Request, Response](
+      proxy: ReplyingActor[F, Request, Response]
+  )(preCreateFn: ActorRefs[F] => F[Unit]): F[TrackingActor[F, Request, Response]] =
+    ActorRefs.empty.flatMap { cache =>
+      preCreateFn(cache).as(
+        new TrackingActor[F, Request, Response](
+          cache.initCountRef,
+          cache.preStartCountRef,
+          cache.postStopCountRef,
+          cache.preRestartCountRef,
+          cache.postRestartCountRef,
+          cache.preSuspendCountRef,
+          cache.preResumeCountRef,
+          cache.messageBufferRef,
+          cache.restartMessageBufferRef,
+          cache.errorMessageBufferRef,
+          cache.timerGenRef,
+          cache.timersRef,
+          proxy
+        )
+      )
+    }
 }
 
-final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal, Request, Response](
+final case class TrackingActor[F[+_], Request, Response](
     initCountRef: Ref[F, Int],
     preStartCountRef: Ref[F, Int],
     postStopCountRef: Ref[F, Int],
@@ -142,9 +129,13 @@ final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal, Request, R
     messageBufferRef: Ref[F, Queue[Any]],
     restartMessageBufferRef: Ref[F, Queue[(Option[Throwable], Option[Any])]],
     errorMessageBufferRef: Ref[F, Queue[(Throwable, Option[Any])]],
+    timerGenRef: Ref[F, Int],
+    timersRef: Ref[F, Timers.TimerMap[F, String]],
     proxy: ReplyingActor[F, Request, Response]
-) extends ReplyingActor[F, Request, Response]
-    with ActorConfig {
+)(implicit val asyncEvidence: Async[F], parallelEvidence: Parallel[F])
+    extends ReplyingActor[F, Request, Response]
+    with ActorConfig
+    with Timers[F, Request, Response, String] {
 
   override val receive: ReplyingReceive[F, Request, Response] = { case m =>
     messageBufferRef.update(_ :+ m) >> proxy.receive(m)
@@ -191,4 +182,5 @@ final case class TrackingActor[F[+_]: Parallel: Concurrent: Temporal, Request, R
   // Tracked actors are special kind of actors in which we do not want to clear the actor cell
   // when the actor is terminated so that we still have access to statistics.
   override def clearActor: Boolean = false
+
 }

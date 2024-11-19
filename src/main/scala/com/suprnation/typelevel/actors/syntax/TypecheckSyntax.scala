@@ -27,45 +27,19 @@ import scala.reflect.{ClassTag, classTag}
 trait TypecheckSyntax {
   final implicit class TypecheckFOps[F[_]: MonadThrow, R](objF: F[R]) {
 
-    def typecheckOpt[T: ClassTag]: OptionT[F, T] =
+    def narrowOpt[T: ClassTag]: OptionT[F, T] =
       OptionT.liftF(objF).flatMap(obj => Typechecking.typecheck[F, R, T](obj))
 
-    def typecheckOr[T: ClassTag, S](orElse: R => S): EitherT[F, S, T] =
+    def narrowOrElse[T: ClassTag, S](orElse: R => S): EitherT[F, S, T] =
       EitherT.liftF(objF).flatMap(obj => Typechecking.typecheckOr(obj, orElse))
 
-    def typecheckOrF[T: ClassTag, S](orElse: R => F[S]): EitherT[F, S, T] =
+    def narrowOrElseF[T: ClassTag, S](orElse: R => F[S]): EitherT[F, S, T] =
       EitherT.liftF(objF).flatMap(obj => Typechecking.typecheckOrF(obj, orElse))
 
-    def typecheck[T: ClassTag]: F[T] =
+    def narrow[T: ClassTag]: F[T] =
       objF.flatMap(obj =>
         Typechecking.typecheckOrRaise[F, R, T](obj, Typechecking.TypecheckException(_: R))
       )
-
-  }
-
-  final implicit class TypecheckActorOps[F[+_]: MonadThrow, Request, Response](
-      actorRef: ReplyingActorRef[F, Request, Response]
-  ) {
-
-    /** Ask a message and typecheck the response. */
-    def askFor[T: ClassTag](fa: => Request)(implicit
-        sender: Option[ActorRef[F, Nothing]] = None
-    ): F[T] = actorRef.?(fa).typecheck[T]
-
-    /** Ask a message and typecheck the response. */
-    @inline def ?>[T: ClassTag](fa: => Request)(implicit
-        sender: Option[ActorRef[F, Nothing]] = None
-    ): F[T] = askFor[T](fa)
-
-    /** Ask a message, preprocess the response and then typecheck it. */
-    def askMapFor[T: ClassTag](fa: => Request)(mapF: Response => Any)(implicit
-        sender: Option[ActorRef[F, Nothing]] = None
-    ): F[T] = actorRef.?(fa).map(mapF).typecheck[T]
-
-    /** Ask a message, preprocess the response and then typecheck it. */
-    @inline def ?>>[T: ClassTag](fa: => Request)(mapF: Response => Any)(implicit
-        sender: Option[ActorRef[F, Nothing]] = None
-    ): F[T] = askMapFor[T](fa)(mapF)
 
   }
 

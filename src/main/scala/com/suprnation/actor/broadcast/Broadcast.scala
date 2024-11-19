@@ -45,7 +45,7 @@ final case class BroadcastAsk[F[+_]: MonadThrow, G[_]: Traverse, Request, Respon
 
   /** Typecheck and cast each response */
   def expecting[T: ClassTag]: BroadcastAsk[F, G, Request, Response, T] =
-    copy(mapF = mapF.andThen(_.typecheck[T]))
+    copy(mapF = mapF.andThen(_.narrow[T]))
 
   /** Map each response */
   def map[T](map: Result => T): BroadcastAsk[F, G, Request, Response, T] =
