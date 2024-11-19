@@ -2,7 +2,7 @@ import sbt._
 import Keys._
 
 ThisBuild / organization := "com.suprnation"
-ThisBuild / version := "2.0.0-RC6"
+ThisBuild / version := "2.0.0"
 ThisBuild / organizationName := "SuprNation"
 ThisBuild / startYear := Some(2024)
 ThisBuild / licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
