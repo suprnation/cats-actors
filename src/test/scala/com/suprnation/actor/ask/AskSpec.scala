@@ -17,15 +17,16 @@
 package com.suprnation.actor.ask
 
 import cats.effect.unsafe.implicits.global
-import cats.effect.{IO, Ref}
+import cats.effect.{Deferred, IO}
 import cats.effect.implicits._
 import cats.implicits._
-import com.suprnation.actor.Actor.ReplyingReceive
+import com.suprnation.actor.Actor.{Actor, ReplyingReceive}
 import com.suprnation.actor.{ActorSystem, ReplyingActor}
 import org.scalatest.flatspec.AsyncFlatSpec
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.Assertions
-import org.scalatest.exceptions.TestFailedException
+import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.time.SpanSugar.convertIntToGrainOfTime
 
 object AskSpec {
   sealed trait Input
@@ -40,7 +41,7 @@ object AskSpec {
   }
 }
 
-class AskSpec extends AsyncFlatSpec with Matchers with Assertions {
+class AskSpec extends AsyncFlatSpec with Matchers with Assertions with ScalaFutures {
 
   import AskSpec._
 
@@ -70,6 +71,42 @@ class AskSpec extends AsyncFlatSpec with Matchers with Assertions {
         .unsafeToFuture()
     }
 
+  }
+
+  it should "receive the response even if the actor system is terminated" in {
+
+    implicit val patienceConfig: PatienceConfig = PatienceConfig(timeout = 2.seconds)
+
+    val childResponseDelay = 500.millis
+    val systemTerminateAfter = 200.millis
+
+    case class AskChildActor() extends ReplyingActor[IO, String, String] {
+      override def receive: ReplyingReceive[IO, String, String] = { case "req" =>
+        IO.sleep(childResponseDelay).as("res")
+      }
+    }
+
+    case class AskParentActor(responseDeferred: Deferred[IO, String]) extends Actor[IO, String] {
+      override def receive: ReplyingReceive[IO, String, Any] = { case msg =>
+        context
+          .replyingActorOf(AskChildActor())
+          .flatMap(_ ? msg)
+          .flatMap(res => responseDeferred.complete(res))
+      }
+    }
+
+    ActorSystem[IO]()
+      .use { actorSystem =>
+        for {
+          responseDeferred <- IO.deferred[String]
+          parentActor <- actorSystem.actorOf(AskParentActor(responseDeferred))
+          _ <- parentActor ! "req"
+          _ <- IO.sleep(systemTerminateAfter)
+        } yield responseDeferred
+      }
+      .flatMap(_.get)
+      .unsafeToFuture()
+      .futureValue shouldBe "res"
   }
 
 }

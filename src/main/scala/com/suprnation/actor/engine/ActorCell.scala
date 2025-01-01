@@ -222,12 +222,13 @@ object ActorCell {
                   }
                   result
                 }
-                .uncancelable
                 .recoverWith { (error: Throwable) =>
                   deferred.fold(isIdleTrue)(d => d.complete(Left(error)).map(_ => _isIdle = true))
-                } >>= { result =>
-              deferred.fold(isIdleTrue)(d => d.complete(Right(result)).map(_ => _isIdle = true))
-            }
+                }
+                .flatMap { result =>
+                  deferred.fold(isIdleTrue)(d => d.complete(Right(result)).map(_ => _isIdle = true))
+                }
+                .uncancelable
           }
 
       def publish(e: Class[?] => LogEvent): F[Unit] =
