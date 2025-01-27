@@ -175,7 +175,9 @@ object ActorSystem {
       )
 
       // Just in case terminate, if there was a termination before this will be ignore.
-      _ <- Resource.onFinalize(actorSystem.terminate(None))
+      _ <- Resource.onFinalize {
+        actorSystem.terminate(None) >> Console[F].println("Actor system terminated")
+      }
 
     } yield actorSystem
 
