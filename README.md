@@ -813,7 +813,7 @@ The `!*` method is used to send system commands to actors. The type definition o
 
 There are two system commands, `Kill` and `PoisonPill`, which can be sent using this method.
 
-These examples demonstrate how to kill actors using `context.self.stop`, `PoisonPill`, and `Kill` in the `cats-actors` library. Let's understand the difference here.
+These examples demonstrate how to kill actors using `context.self.stop`, `PoisonPill`, and `Kill` in the `cats-actors` library.
 
 ## Passing Actor Addresses (ActorRef) around
 Actors communicate by sending messages. To communicate with each other, they need to know each other's addresses. Actors can pass addresses in two ways:
@@ -884,6 +884,7 @@ case class RespondingActor() extends Actor[IO, Question] {
     } yield answer.text
   }
 }
+```
 
 In the receive method, we get a `Question` which contains the question itself and the reply address. The reply address must understand `Answer` messages.
 
@@ -956,6 +957,7 @@ class ChildActor extends Actor[IO, String] {
 First, let's define the actors that will be used in the example.
 
 ```scala
+import cats.data.OptionT
 import cats.effect.IO
 import com.suprnation.actor.Actor.{Actor, Receive}
 import com.suprnation.actor.ActorRef.ActorRef
@@ -976,15 +978,24 @@ case class ChildActor() extends Actor[IO, Request] {
   }
 }
 
-case class ParentActor(childRef: ActorRef[IO, Request]) extends Actor[IO, Request] {
+case class ParentActor(childRef: Ref[IO, Option[ActorRef[IO, Request]]]) extends Actor[IO, Request] {
+
+  override def preStart: IO[Unit] =
+    for {
+      childActor <- context.actorOf(ChildActor(), "child-actor")
+      _ <- childRef.set(Some(childActor))
+    } yield ()
+
   override def receive: Receive[IO, Request] = {
     case Message(msg) =>
       IO.println(s"ParentActor received message: $msg from ${context.sender}") >>
-        (childRef ! Message(msg))
+        OptionT(childRef.get).foreachF(_ ! Message(msg))
     case GetParent =>
-      IO.println(s"ParentActor's parent: ${context.parent}")
+      IO.println(s"ParentActor's parent: ${context.parent}") >>
+        OptionT(childRef.get).foreachF(_ ! GetParent)
     case GetSender =>
-      IO.println(s"ParentActor's sender: ${context.sender}")
+      IO.println(s"ParentActor's sender: ${context.sender}") >>
+        OptionT(childRef.get).foreachF(_ ! GetSender)
   }
 }
 ```
@@ -1002,19 +1013,21 @@ object ActorContextExampleApp extends IOApp {
 
     actorSystemResource.use { system =>
       for {
-        childActor <- system.actorOf(ChildActor(), "child-actor")
-        parentActor <- system.actorOf(ParentActor(childActor), "parent-actor")
+        parentActor <- system.actorOf(
+          Ref.of[IO, Option[ActorRef[IO, Request]]](None).map(ParentActor),
+          "parent-actor"
+        )
 
-        // Send a message to the parent actor
+        // Send a message to the parent and consequently the child actor
         _ <- parentActor ! Message("Hello from main")
         _ <- system.waitForIdle()
 
-        // Get the parent of the child actor
-        _ <- childActor ! GetParent
+        // Print the parent of the parent and consequently the child actor
+        _ <- parentActor ! GetParent
         _ <- system.waitForIdle()
 
-        // Get the sender of the message in the child actor
-        _ <- childActor ! GetSender
+        // Print the sender in the parent and consequently the child actor
+        _ <- parentActor ! GetSender
         _ <- system.waitForIdle()
       } yield ExitCode.Success
     }
@@ -1043,7 +1056,11 @@ Forwarding messages in an actor system means sending a message from one actor to
 
 ### Example: Forwarding Messages in an Actor System
 
-First, let's define the actors that will be used in the example.
+Messages can be forwarded using the `.forward` method or using the `>>!` syntax.
+
+#### Using .forward Method
+
+Let's create an example using the `.forward` method to forward messages.
 
 ```scala
 import cats.effect.{IO, Ref}
@@ -1052,30 +1069,23 @@ import com.suprnation.actor.ActorRef.ActorRef
 
 case class ForwardMessage(msg: String)
 
-case class ForwardActor(
-    forwardTo: ActorRef[IO, ForwardMessage],
-    ref: Ref[IO, Option[ActorRef[IO, Nothing]]]
-) extends Actor[IO, ForwardMessage] {
+case class ForwardActor(forwardTo: ActorRef[IO, ForwardMessage]) extends Actor[IO, ForwardMessage] {
   override def receive: Receive[IO, ForwardMessage] = { case ForwardMessage(msg) =>
-    ref.set(sender) >> forwardTo.forward(ForwardMessage(msg))
+    forwardTo.forward(ForwardMessage(msg))
   }
 }
 
-case class BaseActor(ref: Ref[IO, Option[ActorRef[IO, Nothing]]])
-    extends Actor[IO, ForwardMessage] {
+case class BaseActor() extends Actor[IO, ForwardMessage] {
   override def receive: Receive[IO, ForwardMessage] = { case ForwardMessage(msg) =>
-    ref.set(sender) >> IO.println(s"BaseActor received message: $msg ${context.sender}")
+    IO.println(s"BaseActor received message: $msg from ${context.sender}")
   }
 }
 ```
 
-#### Using .forward Method
-
-Next, let's create an example using the `.forward` method to forward messages.
+Next, let's create the main application to demonstrate the usage.
 
 ```scala
 import cats.effect.{ExitCode, IO, IOApp, Ref}
-import com.suprnation.actor.ActorRef.NoSendActorRef
 import com.suprnation.actor.ActorSystem
 import com.suprnation.typelevel.actors.syntax._
 
@@ -1085,9 +1095,8 @@ object ForwardExampleApp extends IOApp {
 
     actorSystemResource.use { system =>
       for {
-        ref <- Ref.of[IO, Option[NoSendActorRef[IO]]](None)
-        baseActor <- system.actorOf(BaseActor(ref), "base-actor")
-        forwardActor <- system.actorOf(ForwardActor(baseActor, ref), "forward-actor")
+        baseActor <- system.actorOf(BaseActor(), "base-actor")
+        forwardActor <- system.actorOf(ForwardActor(baseActor), "forward-actor")
 
         // Send a message to the forward actor, which will forward it to the base actor
         _ <- forwardActor ! ForwardMessage("Hello using .forward")
@@ -1105,23 +1114,19 @@ Now, let's create an example using the `>>!` syntax to forward messages.
 ```scala
 import cats.effect.{IO, Ref}
 import com.suprnation.actor.Actor.{Actor, Receive}
-import com.suprnation.actor.ActorRef.{ActorRef, NoSendActorRef}
+import com.suprnation.actor.ActorRef.ActorRef
 
 case class ForwardMessage(msg: String)
 
-case class ForwardActor(
-    forwardTo: ActorRef[IO, ForwardMessage],
-    ref: Ref[IO, Option[NoSendActorRef[IO]]]
-) extends Actor[IO, ForwardMessage] {
+case class ForwardActor(forwardTo: ActorRef[IO, ForwardMessage]) extends Actor[IO, ForwardMessage] {
   override def receive: Receive[IO, ForwardMessage] = { case ForwardMessage(msg) =>
-    ref.set(sender) >> (forwardTo >>! ForwardMessage(msg))
+    forwardTo >>! ForwardMessage(msg)
   }
 }
 
-case class BaseActor(ref: Ref[IO, Option[ActorRef[IO, Nothing]]])
-    extends Actor[IO, ForwardMessage] {
+case class BaseActor() extends Actor[IO, ForwardMessage] {
   override def receive: Receive[IO, ForwardMessage] = { case ForwardMessage(msg) =>
-    ref.set(sender) >> IO.println(s"BaseActor received message: $msg ${context.sender}")
+    IO.println(s"BaseActor received message: $msg from ${context.sender}")
   }
 }
 ```
@@ -1143,10 +1148,6 @@ case class BaseActor(ref: Ref[IO, Option[ActorRef[IO, Nothing]]])
 
 > **Note:** When an actor forwards a message, `context.sender` remains the original sender, allowing the receiving actor to respond directly to the original sender if needed.
 
-#### Explanation of NoSendActorRef
-
-`NoSendActorRef[IO]` is an alias for `Option[ReplyingActorRef[IO, Nothing, Any]]`, representing an actor address to which we cannot send any messages (`Nothing` indicates no accepted message type), but can be used to reply with any type (`Any`), implying flexibility in responses. This design ensures that the reference can hold an actor's address while restricting its usage to non-sending operations, maintaining type safety and functional constraints within the actor system.
-
 ## Supervision
 Supervision in an actor system refers to the mechanism by which parent actors manage the lifecycle and failures of their child actors. It ensures fault tolerance and robust error handling in the system.
 
@@ -1164,7 +1165,7 @@ Supervision in an actor system refers to the mechanism by which parent actors ma
   - `Resume Strategy`: Allows the actor to continue processing messages without restarting, used for recoverable errors that don't require state re-initialization.
   - `Escalate Strategy`: Passes the failure to the parent actor to decide the next course of action.
 
-Below is an example demonstrating supervision in an actor system using the `cats-actors` library. This example will cover the key concepts and supervision strategies you mentioned.
+Below is an example demonstrating supervision in an actor system using the `cats-actors` library. This example covers the key concepts and the above-mentioned supervision strategies.
 
 ### Example: Supervision in an Actor System
 
@@ -1195,7 +1196,10 @@ case class ParentActor(ref: Ref[IO, List[ActorRef[IO, Request]]]) extends Actor[
     }
 
   override def preStart: IO[Unit] =
-    ref.update(xs => xs :+ context.actorOf(ChildActor(), "child-actor").void)
+    for {
+      childActor <- context.actorOf(ChildActor(), "child-actor")
+      _ <- ref.update(_ :+ childActor)
+    } yield ()
 
   override def receive: Receive[IO, Request] = { case msg =>
     for {
@@ -1366,7 +1370,8 @@ case class ParentActor(ref: Ref[IO, List[ActorRef[IO, Request]]]) extends Actor[
   override def preStart: IO[Unit] =
     for {
       _ <- IO.println("ParentActor is starting.")
-      _ <- context.actorOf(ChildActor(), "child-actor").void
+      childActor <- context.actorOf(ChildActor(), "child-actor")
+      _ <- ref.update(_ :+ childActor)
     } yield ()
 
   override def postStop: IO[Unit] =
@@ -1566,7 +1571,7 @@ actor watches another actor, it will be notified if the watched actor stops, eit
 *Key Concepts*
 
 - **Watching**: An actor can start watching another actor using the watch method.
-- **Termination Notifications**: If the watched actor stops, the watcher actor receives a the user defined termination message.
+- **Termination Notifications**: If the watched actor stops, the watcher actor receives a user defined termination message.
 - **Unwatching**: An actor can stop watching another actor using the unwatch method.
 
 ### Example: Watching Actors
@@ -1662,6 +1667,10 @@ object ActorWatchExampleApp extends IOApp {
 
 > **Note:** The `context.watch(child, ActorTerminated(child))` instruction tells the system to send the `ActorTerminated(actorRef)` message when the actor is terminated.
 
+#### Explanation of NoSendActorRef
+
+`NoSendActorRef[IO]` is an alias for `ReplyingActorRef[IO, Nothing, Any]`, representing an actor address to which we cannot send any messages (`Nothing` indicates no accepted message type), but can be used to reply with any type (`Any`), implying flexibility in responses. This design ensures that the reference can hold an actor's address while restricting its usage to non-sending operations, maintaining type safety and functional constraints within the actor system.
+
 ## Scheduling messages
 
 Let's create an example that demonstrates how to use the `Scheduler` class and its `scheduleOnce` method to schedule a task to run after a specified delay.
@@ -1745,6 +1754,8 @@ In an actor system, `become` and `unbecome` are used to change an actor's behavi
 **Unbecome**
 
 - The `unbecome` method reverts the actor's behavior to the previous one. This is typically used to handle state transitions that need to revert back to an original or default behavior. The behavior is changed on the next message.
+-
+> **Note:** Whether `unbecome` will revert to the _previous_ or the _initial_ behavior depends on whether the `discardOld` parameter was specified when using `become`. By default `become` discards the previous behaviour except if it is the initial one, which is never discarded.
 
 ### Example: Context `become` and `unbecome`
 
@@ -2176,14 +2187,7 @@ The FSM is fully typed and will receive messages of type `Request`, which is def
 
 The response type `List[Any]` is explained further below.
 
-
-2. **Timeout Mechanism**:
-
-- `context.setReceiveTimeout(5.seconds, Timeout)` is used to schedule a timeout.
-- When the timeout occurs, the user-defined `Timeout` message is sent to the user actor.
-
-
-3. **Replying FSM**:
+2. **Replying FSM**:
 
 - The FSM may reply to a message based on its corresponding state transition. 
 - The reply can be in the form of a returned response that fulfils the ask (`?`) pattern, similarly to any other actor in cats-actors (`ReturnResponse` reply type). 
@@ -2563,7 +2567,7 @@ object ShardingApp extends IOApp {
       case Shard(userId, amount) =>
         IO.println(s"Received Message from child [UserId: $userId] [Amount: $amount]")
       case Timeout =>
-        IO.println(s"Hey no one sent me anything for [UserId: $userId] 2 second!") >>
+        IO.println(s"Hey no one sent me anything for [UserId: $userId] 2 seconds!") >>
           (parent ! ActorIdle(userId))
     }
   }
