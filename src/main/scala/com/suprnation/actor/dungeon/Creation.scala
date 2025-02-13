@@ -72,12 +72,9 @@ trait Creation[F[+_], Request, Response] {
           (newActor >>= ((created: ReplyingActor[F, Request, Response]) =>
             created.aroundPreStart()
           )) >>
-            system.settings.DebugLifecycle
-              .pure[F]
-              .ifM(
-                publish(clazz => Debug(self.path.toString, clazz, "started (" + clazz + ")")),
-                asyncF.unit
-              )
+            asyncF.whenA(system.settings.DebugLifecycle)(
+              publish(clazz => Debug(self.path.toString, clazz, "started (" + clazz + ")"))
+            )
         ).recoverWith { case NonFatal(e) =>
           failActor >> (e match {
             case i: InstantiationException =>

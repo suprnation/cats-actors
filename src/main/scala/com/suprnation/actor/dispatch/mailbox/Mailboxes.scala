@@ -279,12 +279,10 @@ object Mailboxes {
                 }
               }
             _ <- Sync[F]
-              .delay(systemQueue.isEmpty && userQueue.isEmpty)
-              .ifM(
+              .whenA(systemQueue.isEmpty && userQueue.isEmpty)(
                 // Note that here we run lock free, this is because we are guaranteed to receive the ping in this scenario
                 // so even though we might have missed this update we will get it in the next ping.
-                Deferred[F, Unit].map(d => deferred = d) >> deferred.get,
-                Sync[F].unit
+                Deferred[F, Unit].map(d => deferred = d) >> deferred.get
               )
           } yield ()
 
