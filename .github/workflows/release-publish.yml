@@ -19,6 +19,12 @@ jobs:
           distribution: 'adopt'
           java-version: '11'
 
+      - name: Setup sbt
+        uses: olafurpg/setup-scala@v11
+        with:
+          sbt-version: 1.9.9
+          scala-version: 2.13.16
+
       - name: Cache sbt
         uses: actions/cache@v2
         with:
@@ -42,13 +48,13 @@ jobs:
 
       - name: Build and publish for Scala 2.13
         run: |
-          sbt ++2.13.12 clean compile publishM2
+          sbt ++2.13.16 clean compile publishM2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish for Scala 2.13
         run: |
-          sbt ++2.13.12 publish
+          sbt ++2.13.16 publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

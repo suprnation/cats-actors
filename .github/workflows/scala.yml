@@ -27,6 +27,14 @@ jobs:
           distribution: 'temurin'
           cache: 'sbt'
 
+
+      - name: Setup sbt
+        uses: olafurpg/setup-scala@v11
+        with:
+          sbt-version: 1.9.9
+          scala-version: 2.13.16
+
+
       - name: Cache sbt
         uses: actions/cache@v2
         with:
@@ -44,13 +52,13 @@ jobs:
             ${{ runner.os }}-coursier-
 
       - name: Run tests for Scala 2.13
-        run: sbt ++2.13.12 clean compile test
+        run: sbt ++2.13.16 clean compile test
 
       - name: Run tests for Scala 3
         run: sbt ++3.3.4 clean compile test
 
-      - name: Sbt Dependency Submission for Scala 2.13
-        uses: scalacenter/sbt-dependency-submission@v3.0.1
-
-      - name: Sbt Dependency Submission for Scala 3
-        uses: scalacenter/sbt-dependency-submission@v3.0.1
+#      - name: Sbt Dependency Submission for Scala 2.13
+#        uses: scalacenter/sbt-dependency-submission@v3.0.1
+#
+#      - name: Sbt Dependency Submission for Scala 3
+#        uses: scalacenter/sbt-dependency-submission@v3.0.1

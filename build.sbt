@@ -2,18 +2,18 @@ import sbt._
 import Keys._
 
 ThisBuild / organization := "com.suprnation"
-ThisBuild / version := "2.0.0"
+ThisBuild / version := "2.0.1"
 ThisBuild / organizationName := "SuprNation"
 ThisBuild / startYear := Some(2024)
 ThisBuild / licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.txt"))
 
-ThisBuild / crossScalaVersions := Seq("2.13.12", "3.3.4")
+ThisBuild / crossScalaVersions := Seq("2.13.16", "3.3.4")
 ThisBuild / scalaVersion := crossScalaVersions.value.head
 
 lazy val commonSettings = Seq(
   Test / parallelExecution := false,
   libraryDependencies ++= Seq(
-    "org.typelevel" %% "cats-effect" % "3.5.2",
+    "org.typelevel" %% "cats-effect" % "3.5.7",
     "org.scalatest" %% "scalatest" % "3.2.19" % Test
   ),
   publishMavenStyle := true,
