@@ -143,12 +143,9 @@ trait DeathWatch[F[+_], Request, Response] {
           deathWatchContext.watchedByRef.get >>= (watchedBy =>
             if (!watchedBy.contains(watcher)) {
               deathWatchContext.watchedByRef.update(watchedBy => watchedBy + watcher) >>
-                system.settings.DebugLifecycle
-                  .pure[F]
-                  .ifM(
-                    publish(Debug(self.self.path.toString, _, s"now watched by $watcher")),
-                    asyncF.unit
-                  )
+                asyncF.whenA(system.settings.DebugLifecycle)(
+                  publish(Debug(self.self.path.toString, _, s"now watched by $watcher"))
+                )
             } else asyncF.unit
           )
         } else if (!watcheeSelf && watcherSelf) {

@@ -44,7 +44,7 @@ object SupervisorStrategy {
     case _: DeathPactException[?]           => Stop
     case _: Exception                       => Restart
   }
-  final val escalateDefault: Decider = (_: Any) => Escalate
+  final val escalateDefault: Decider = (_: Throwable) => Escalate
 
   /** When supervisorStrategy is not specified for an actor this is used by default. OneForOneStrategy with decider defined in [[#defaultDecider]]
     */

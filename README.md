@@ -545,8 +545,8 @@ case class EchoActor() extends Actor[IO, String] {
 case class ParentActor() extends Actor[IO, String] {
   override def receive: Receive[IO, String] = { case "createChildren" =>
     for {
-      child1 <- context.system.actorOf(EchoActor(), "childActor1")
-      child2 <- context.system.actorOf(EchoActor(), "childActor2")
+      child1 <- context.actorOf(EchoActor(), "childActor1")
+      child2 <- context.actorOf(EchoActor(), "childActor2")
       _ <- List(child1, child2).parTraverse_(_ ! "Hello from ParentActor")
     } yield ()
   }
@@ -585,7 +585,7 @@ case class EchoActor() extends Actor[IO, String] {
 case class GrandParentActor() extends Actor[IO, String] {
   override def receive: Receive[IO, String] = { case "createParent" =>
     for {
-      parent <- context.system.actorOf(ParentActor(), "parentActor")
+      parent <- context.actorOf(ParentActor(), "parentActor")
       _ <- parent ! "createChild"
     } yield ()
   }
